@@ -1,37 +1,41 @@
 import { Suspense } from 'react'
 import RotaClient from '@/components/RotaClient'
 
-function RotaPageFallback() {
+function RouteFallback() {
   return (
-    <section className='rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm'>
-      <p className='text-sm font-medium text-emerald-700'>Carregando painel de rota...</p>
+    <section className='relative h-full w-full overflow-hidden bg-[#e7eeea]'>
+      <div className='absolute inset-0 animate-pulse bg-[linear-gradient(110deg,#e5ece8_10%,#f5faf7_45%,#e5ece8_80%)]' />
+      <div className='absolute left-4 top-4 rounded-full border border-white/70 bg-white/90 px-3 py-1 text-xs font-semibold text-emerald-900 shadow-sm'>
+        Carregando mapa operacional...
+      </div>
     </section>
   )
 }
 
 export default function RotaPage() {
   return (
-    <main className='relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f4f8f6_0%,#fdfdfc_45%,#f7faf8_100%)]'>
-      <div className='pointer-events-none absolute -left-24 top-[-64px] h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl' />
-      <div className='pointer-events-none absolute -right-24 top-52 h-72 w-72 rounded-full bg-emerald-900/10 blur-3xl' />
-
-      <div className='relative mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 pb-10 pt-8 sm:px-6 lg:px-8 lg:pb-14 lg:pt-12'>
-        <header className='rounded-3xl border border-emerald-100 bg-white/90 p-6 shadow-sm backdrop-blur md:p-8'>
-          <span className='inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800'>
-            Connecta Vale
-          </span>
-          <h1 className='mt-4 text-3xl font-semibold tracking-tight text-emerald-950 md:text-4xl'>
-            Rota operacional em tempo real
-          </h1>
-          <p className='mt-3 max-w-2xl text-sm leading-relaxed text-slate-600 md:text-base'>
-            Compartilhe sua localizacao para montar o melhor trajeto ate o destino informado na mensagem.
+    <main className='relative h-screen w-screen overflow-hidden bg-[#eef4f1]'>
+      <header className='absolute inset-x-0 top-0 z-[1200] h-14 border-b border-white/20 bg-[#03392a]/88 backdrop-blur'>
+        <div className='mx-auto flex h-full w-full max-w-7xl items-center justify-between px-3 sm:px-4'>
+          <div className='flex items-center gap-2'>
+            <span className='rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-900'>
+              Connecta Vale
+            </span>
+            <span className='rounded-full border border-emerald-200/50 bg-emerald-100/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-50'>
+              Rota operacional
+            </span>
+          </div>
+          <p className='hidden text-xs font-medium text-emerald-50/90 sm:block'>
+            Navegacao e mobilidade em tempo real
           </p>
-        </header>
+        </div>
+      </header>
 
-        <Suspense fallback={<RotaPageFallback />}>
+      <section className='h-full pt-14'>
+        <Suspense fallback={<RouteFallback />}>
           <RotaClient />
         </Suspense>
-      </div>
+      </section>
     </main>
   )
 }

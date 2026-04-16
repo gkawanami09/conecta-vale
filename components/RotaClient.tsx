@@ -14,6 +14,9 @@ export default function RotaClient() {
   const [start, setStart] = useState<[number, number] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadingLocation, setLoadingLocation] = useState(false)
+  const [showLocationHint, setShowLocationHint] = useState(true)
+  const [recenterTick, setRecenterTick] = useState(0)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   const destination = useMemo(() => {
     const destLng = Number(searchParams.get('destLng'))
@@ -50,6 +53,7 @@ export default function RotaClient() {
         const lat = position.coords.latitude
         setStart([lng, lat])
         setLoadingLocation(false)
+        setShowLocationHint(false)
       },
       (geoError) => {
         console.error('Erro de geolocalizacao:', {
@@ -78,99 +82,99 @@ export default function RotaClient() {
     )
   }
 
-  const locationStatus = start
-    ? 'Localizacao capturada com sucesso.'
-    : 'Aguardando permissao para iniciar a rota.'
+  function handleRecenter() {
+    if (!start) return
+    setRecenterTick((value) => value + 1)
+  }
+
+  function handleRefreshRoute() {
+    if (!start) return
+    setRefreshTick((value) => value + 1)
+  }
 
   return (
-    <div className='space-y-6'>
-      <section className='grid gap-4 lg:grid-cols-[1.4fr_1fr]'>
-        <article className='rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6'>
-          <p className='text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700'>
-            Destino da operacao
-          </p>
-          <h2 className='mt-2 text-2xl font-semibold text-slate-900'>{destination.destName}</h2>
-          <p className='mt-2 text-sm leading-relaxed text-slate-600'>
-            Compartilhe sua localizacao para abrir a rota com orientacao em tempo real.
-          </p>
+    <section className='relative h-full w-full'>
+      <RouteMap
+        start={start}
+        end={destination.end}
+        recenterTick={recenterTick}
+        refreshTick={refreshTick}
+      />
 
-          {destination.usedFallback && (
-            <div className='mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
-              Destino da URL invalido ou ausente. O sistema aplicou um destino padrao.
-            </div>
-          )}
-
-          {error && (
-            <div className='mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700'>
-              {error}
-            </div>
-          )}
-
-          <div className='mt-5 flex flex-col gap-3 sm:flex-row sm:items-center'>
-            <button
-              onClick={handleUseMyLocation}
-              disabled={loadingLocation}
-              className='inline-flex items-center justify-center rounded-xl bg-emerald-800 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:bg-emerald-700'
-            >
-              {loadingLocation ? 'Obtendo localizacao...' : 'Usar minha localizacao'}
-            </button>
-
-            <span className='rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800'>
-              {locationStatus}
-            </span>
-          </div>
-        </article>
-
-        <aside className='rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6'>
-          <p className='text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700'>
-            Painel da viagem
-          </p>
-          <ul className='mt-4 space-y-3 text-sm text-slate-700'>
-            <li className='rounded-xl bg-slate-50 px-3 py-2'>
-              <span className='font-medium text-slate-900'>Status:</span>{' '}
-              {start ? 'Rota pronta para consulta.' : 'Aguardando localizacao.'}
-            </li>
-            <li className='rounded-xl bg-slate-50 px-3 py-2'>
-              <span className='font-medium text-slate-900'>Atualizacao:</span> em tempo real
-            </li>
-            <li className='rounded-xl bg-slate-50 px-3 py-2'>
-              <span className='font-medium text-slate-900'>Origem:</span>{' '}
-              {start ? `${start[1].toFixed(5)}, ${start[0].toFixed(5)}` : 'Nao definida'}
-            </li>
-          </ul>
-        </aside>
-      </section>
-
-      <section className='rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5 lg:p-6'>
-        <div className='mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between'>
-          <div>
-            <h3 className='text-lg font-semibold text-slate-900 sm:text-xl'>Mapa da rota</h3>
-            <p className='text-sm text-slate-600'>
-              Visualizacao do trajeto entre sua origem e o destino selecionado.
+      <div className='pointer-events-none absolute inset-0 z-[1100]'>
+        <div className='pointer-events-auto absolute left-3 top-3 max-w-[78vw] rounded-2xl border border-white/70 bg-white/90 px-3.5 py-3 shadow-lg backdrop-blur sm:max-w-sm sm:px-4'>
+          <div className='flex items-center gap-2'>
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${start ? 'animate-pulse bg-emerald-500' : 'bg-amber-400'}`}
+            />
+            <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-900'>
+              {start ? 'Rota ativa' : 'Aguardando GPS'}
             </p>
           </div>
-          <span className='self-start rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 sm:self-auto'>
-            OpenRouteService + OpenStreetMap
-          </span>
+          <h2 className='mt-1.5 truncate text-base font-semibold text-slate-900 sm:text-lg'>
+            {destination.destName}
+          </h2>
+          {destination.usedFallback && (
+            <p className='mt-1.5 text-xs font-medium text-amber-700'>
+              Destino da URL invalido. Usando destino padrao.
+            </p>
+          )}
         </div>
 
-        <div className='overflow-hidden rounded-2xl border border-slate-200 bg-slate-100'>
-          <div className='h-[320px] w-full sm:h-[420px] lg:h-[520px]'>
-            {!start ? (
-              <div className='flex h-full flex-col items-center justify-center gap-3 px-5 text-center'>
-                <div className='rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-800'>
-                  Pronto para iniciar
-                </div>
-                <p className='max-w-md text-sm text-slate-600'>
-                  Toque em <strong>Usar minha localizacao</strong> para liberar o mapa com o trajeto.
+        <div className='pointer-events-auto absolute bottom-4 right-3 flex flex-col gap-2 sm:right-4 sm:top-3 sm:bottom-auto'>
+          <button
+            onClick={handleUseMyLocation}
+            disabled={loadingLocation}
+            className='rounded-xl bg-emerald-800 px-4 py-2.5 text-xs font-semibold text-white shadow-lg transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:bg-emerald-700 sm:text-sm'
+          >
+            {loadingLocation ? 'Obtendo GPS...' : 'Usar minha localizacao'}
+          </button>
+
+          <button
+            onClick={handleRecenter}
+            disabled={!start}
+            className='rounded-xl border border-white/60 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-800 shadow-md backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 sm:text-sm'
+          >
+            Centralizar
+          </button>
+
+          <button
+            onClick={handleRefreshRoute}
+            disabled={!start}
+            className='rounded-xl border border-white/60 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-800 shadow-md backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 sm:text-sm'
+          >
+            Atualizar rota
+          </button>
+        </div>
+
+        {!start && showLocationHint && (
+          <div className='pointer-events-auto absolute bottom-4 left-3 right-24 rounded-2xl border border-white/60 bg-white/92 px-3.5 py-3 shadow-xl backdrop-blur sm:left-4 sm:right-[180px] sm:max-w-md'>
+            <div className='flex items-start justify-between gap-3'>
+              <div>
+                <p className='text-xs font-semibold uppercase tracking-[0.12em] text-emerald-900'>
+                  Permissao de localizacao
+                </p>
+                <p className='mt-1 text-xs leading-relaxed text-slate-700 sm:text-sm'>
+                  Ative sua localizacao para iniciar a navegacao operacional.
                 </p>
               </div>
-            ) : (
-              <RouteMap start={start} end={destination.end} />
-            )}
+              <button
+                onClick={() => setShowLocationHint(false)}
+                className='rounded-md px-1.5 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                aria-label='Fechar aviso de localizacao'
+              >
+                x
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
-    </div>
+        )}
+
+        {error && (
+          <div className='pointer-events-auto absolute bottom-28 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2.5 text-xs font-medium text-rose-700 shadow-md sm:bottom-4 sm:left-1/2 sm:right-auto sm:w-[420px] sm:-translate-x-1/2 sm:text-sm'>
+            {error}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
