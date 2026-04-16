@@ -16,7 +16,6 @@ type RouteMapProps = {
   start: [number, number] | null // [lng, lat]
   end: [number, number] // [lng, lat]
   recenterTick: number
-  refreshTick: number
 }
 
 type MapViewportControllerProps = {
@@ -70,7 +69,6 @@ export default function RouteMap({
   start,
   end,
   recenterTick,
-  refreshTick,
 }: RouteMapProps) {
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([])
   const [loading, setLoading] = useState(false)
@@ -157,7 +155,7 @@ export default function RouteMap({
     }
 
     fetchRoute()
-  }, [start, end, refreshTick])
+  }, [start, end])
 
   return (
     <div className='relative h-full w-full'>
@@ -193,7 +191,7 @@ export default function RouteMap({
           <Polyline
             positions={routeCoords}
             pathOptions={{
-              color: '#005f3b',
+              color: '#2850B8',
               weight: 6,
               opacity: 0.92,
               lineCap: 'round',
@@ -204,7 +202,7 @@ export default function RouteMap({
       </MapContainer>
 
       {loading && (
-        <div className='pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-white/70 bg-white/92 px-3 py-1.5 text-xs font-semibold text-emerald-900 shadow-sm backdrop-blur'>
+        <div className='pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-white/70 bg-white/92 px-3 py-1.5 text-xs font-semibold text-[#384880] shadow-sm backdrop-blur'>
           Calculando rota...
         </div>
       )}
@@ -226,7 +224,7 @@ export default function RouteMap({
           position: absolute;
           inset: 0;
           border-radius: 999px;
-          background: rgba(5, 150, 105, 0.25);
+          background: rgba(40, 80, 184, 0.28);
           animation: connectaPulse 1.8s ease-out infinite;
         }
 
@@ -238,9 +236,9 @@ export default function RouteMap({
           height: 14px;
           border: 2px solid #ffffff;
           border-radius: 999px;
-          background: #047857;
+          background: #2850b8;
           transform: translate(-50%, -50%);
-          box-shadow: 0 0 0 2px rgba(4, 120, 87, 0.38);
+          box-shadow: 0 0 0 2px rgba(40, 80, 184, 0.35);
         }
 
         .connecta-user-marker-arrow {
@@ -251,7 +249,7 @@ export default function RouteMap({
           height: 0;
           border-left: 5px solid transparent;
           border-right: 5px solid transparent;
-          border-bottom: 9px solid #047857;
+          border-bottom: 9px solid #2850b8;
           transform: translateX(-50%);
           filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.3));
         }
@@ -263,10 +261,10 @@ export default function RouteMap({
           width: 14px;
           height: 14px;
           border-radius: 999px;
-          background: #14532d;
+          background: #384880;
           border: 2px solid #ffffff;
           transform: translate(-50%, -50%);
-          box-shadow: 0 0 0 4px rgba(20, 83, 45, 0.22);
+          box-shadow: 0 0 0 4px rgba(112, 200, 248, 0.48);
         }
 
         @keyframes connectaPulse {

@@ -16,7 +16,6 @@ export default function RotaClient() {
   const [loadingLocation, setLoadingLocation] = useState(false)
   const [showLocationHint, setShowLocationHint] = useState(true)
   const [recenterTick, setRecenterTick] = useState(0)
-  const [refreshTick, setRefreshTick] = useState(0)
 
   const destination = useMemo(() => {
     const destLng = Number(searchParams.get('destLng'))
@@ -87,27 +86,21 @@ export default function RotaClient() {
     setRecenterTick((value) => value + 1)
   }
 
-  function handleRefreshRoute() {
-    if (!start) return
-    setRefreshTick((value) => value + 1)
-  }
-
   return (
     <section className='relative h-full w-full'>
       <RouteMap
         start={start}
         end={destination.end}
         recenterTick={recenterTick}
-        refreshTick={refreshTick}
       />
 
       <div className='pointer-events-none absolute inset-0 z-[1100]'>
         <div className='pointer-events-auto absolute left-3 top-3 max-w-[78vw] rounded-2xl border border-white/70 bg-white/90 px-3.5 py-3 shadow-lg backdrop-blur sm:max-w-sm sm:px-4'>
           <div className='flex items-center gap-2'>
             <span
-              className={`h-2.5 w-2.5 rounded-full ${start ? 'animate-pulse bg-emerald-500' : 'bg-amber-400'}`}
+              className={`h-2.5 w-2.5 rounded-full ${start ? 'animate-pulse bg-[#2850B8]' : 'bg-[#70C8F8]'}`}
             />
-            <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-900'>
+            <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-[#384880]'>
               {start ? 'Rota ativa' : 'Aguardando GPS'}
             </p>
           </div>
@@ -115,20 +108,22 @@ export default function RotaClient() {
             {destination.destName}
           </h2>
           {destination.usedFallback && (
-            <p className='mt-1.5 text-xs font-medium text-amber-700'>
+            <p className='mt-1.5 text-xs font-medium text-[#3A5AB8]'>
               Destino da URL invalido. Usando destino padrao.
             </p>
           )}
         </div>
 
         <div className='pointer-events-auto absolute bottom-4 right-3 flex flex-col gap-2 sm:right-4 sm:top-3 sm:bottom-auto'>
-          <button
-            onClick={handleUseMyLocation}
-            disabled={loadingLocation}
-            className='rounded-xl bg-emerald-800 px-4 py-2.5 text-xs font-semibold text-white shadow-lg transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:bg-emerald-700 sm:text-sm'
-          >
-            {loadingLocation ? 'Obtendo GPS...' : 'Usar minha localizacao'}
-          </button>
+          {!start && (
+            <button
+              onClick={handleUseMyLocation}
+              disabled={loadingLocation}
+              className='rounded-xl bg-[#2850B8] px-4 py-2.5 text-xs font-semibold text-white shadow-lg transition hover:bg-[#2347A3] disabled:cursor-not-allowed disabled:bg-[#4A63B7] sm:text-sm'
+            >
+              {loadingLocation ? 'Obtendo GPS...' : 'Usar minha localizacao'}
+            </button>
+          )}
 
           <button
             onClick={handleRecenter}
@@ -137,21 +132,13 @@ export default function RotaClient() {
           >
             Centralizar
           </button>
-
-          <button
-            onClick={handleRefreshRoute}
-            disabled={!start}
-            className='rounded-xl border border-white/60 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-800 shadow-md backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 sm:text-sm'
-          >
-            Atualizar rota
-          </button>
         </div>
 
         {!start && showLocationHint && (
           <div className='pointer-events-auto absolute bottom-4 left-3 right-24 rounded-2xl border border-white/60 bg-white/92 px-3.5 py-3 shadow-xl backdrop-blur sm:left-4 sm:right-[180px] sm:max-w-md'>
             <div className='flex items-start justify-between gap-3'>
               <div>
-                <p className='text-xs font-semibold uppercase tracking-[0.12em] text-emerald-900'>
+                <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[#384880]'>
                   Permissao de localizacao
                 </p>
                 <p className='mt-1 text-xs leading-relaxed text-slate-700 sm:text-sm'>
