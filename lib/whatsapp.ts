@@ -11,6 +11,13 @@ function normalizeWahaBaseUrl(url: string) {
   return url.trim().replace(/\/+$/, '')
 }
 
+function buildSendTextEndpoint(baseUrl: string) {
+  const normalized = normalizeWahaBaseUrl(baseUrl)
+  return normalized.endsWith('/api')
+    ? `${normalized}/sendText`
+    : `${normalized}/api/sendText`
+}
+
 function normalizeChatId(value: string) {
   const trimmed = value.trim()
 
@@ -50,7 +57,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export async function sendWhatsAppText(to: string, body: string) {
-  const endpoint = `${normalizeWahaBaseUrl(WAHA_BASE_URL)}/sendText`
+  const endpoint = buildSendTextEndpoint(WAHA_BASE_URL)
   const chatId = normalizeChatId(to)
   const text = body.trim()
 
