@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import RotaClient from '@/components/RotaClient'
 
 export default function RotaPage() {
@@ -8,10 +9,12 @@ export default function RotaPage() {
       </h1>
 
       <p style={{ marginBottom: '20px' }}>
-        Toque no botão abaixo para compartilhar sua localização e gerar a rota.
+        Toque no botao abaixo para compartilhar sua localizacao e gerar a rota.
       </p>
 
-      <RotaClient />
+      <Suspense fallback={<p>Carregando rota...</p>}>
+        <RotaClient />
+      </Suspense>
     </main>
   )
 }
