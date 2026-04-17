@@ -25,6 +25,8 @@ export type MarcoInput = {
   caption?: string | null
   messageType?: string | null
   audioUrl?: string | null
+  audioUrls?: string[]
+  audioBase64?: string | null
   imageUrl?: string | null
   mediaMimeType?: string | null
 }
@@ -173,19 +175,15 @@ function resolveMediaUrl(url: string) {
   return `${base}/api/${url}`
 }
 
-async function downloadMedia(url: string) {
+async function fetchMediaFromUrl(url: string, withApiKey: boolean) {
   const absoluteUrl = resolveMediaUrl(url)
   const response = await fetch(absoluteUrl, {
     method: 'GET',
-    headers: {
-      'X-Api-Key': WAHA_API_KEY,
-    },
+    headers: withApiKey ? { 'X-Api-Key': WAHA_API_KEY } : undefined,
     cache: 'no-store',
   })
 
-  if (!response.ok) {
-    throw new Error(`Falha ao baixar midia (${response.status})`)
-  }
+  if (!response.ok) return null
 
   const contentType =
     response.headers.get('content-type') ?? 'application/octet-stream'
@@ -198,11 +196,40 @@ async function downloadMedia(url: string) {
   }
 }
 
-async function transcribeAudioFromUrl(audioUrl: string, mimeType?: string | null) {
+async function downloadMedia(urlCandidates: string[]) {
+  const uniqueUrls = Array.from(new Set(urlCandidates.filter(Boolean)))
+  for (const url of uniqueUrls) {
+    const withApiKey = await fetchMediaFromUrl(url, true)
+    if (withApiKey) return withApiKey
+
+    const withoutApiKey = await fetchMediaFromUrl(url, false)
+    if (withoutApiKey) return withoutApiKey
+  }
+
+  throw new Error('Falha ao baixar midia em todos os endpoints candidatos')
+}
+
+function decodeAudioBase64(audioBase64: string) {
+  const raw = audioBase64.trim()
+  if (!raw) return null
+
+  const normalized = raw.includes(',')
+    ? raw.slice(raw.indexOf(',') + 1)
+    : raw
+
+  try {
+    const buffer = Buffer.from(normalized, 'base64')
+    if (!buffer.byteLength) return null
+    return buffer
+  } catch {
+    return null
+  }
+}
+
+async function transcribeAudioBuffer(buffer: Buffer, mimeType?: string | null) {
   if (!OPENAI_API_KEY) return null
 
-  const media = await downloadMedia(audioUrl)
-  const fileMime = mimeType ?? media.mimeType
+  const fileMime = mimeType ?? 'audio/ogg'
   const extension = fileMime.includes('ogg')
     ? 'ogg'
     : fileMime.includes('mpeg') || fileMime.includes('mp3')
@@ -211,28 +238,69 @@ async function transcribeAudioFromUrl(audioUrl: string, mimeType?: string | null
         ? 'wav'
         : 'm4a'
 
-  const form = new FormData()
-  form.append(
-    'file',
-    new Blob([media.buffer], { type: fileMime }),
-    `audio.${extension}`
+  const modelCandidates = Array.from(
+    new Set([OPENAI_TRANSCRIBE_MODEL, 'gpt-4o-mini-transcribe', 'whisper-1'])
   )
-  form.append('model', OPENAI_TRANSCRIBE_MODEL)
 
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: form,
-  })
+  for (const model of modelCandidates) {
+    const form = new FormData()
+    form.append(
+      'file',
+      new Blob([new Uint8Array(buffer)], { type: fileMime }),
+      `audio.${extension}`
+    )
+    form.append('model', model)
 
-  if (!response.ok) {
-    throw new Error(`Falha na transcricao (${response.status})`)
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: form,
+    })
+
+    if (!response.ok) {
+      console.error('[marco] transcription_model_error', {
+        model,
+        status: response.status,
+      })
+      continue
+    }
+
+    const data = (await response.json()) as { text?: string }
+    const text = data.text?.trim() ?? ''
+    if (text.length > 0) return text
   }
 
-  const data = (await response.json()) as { text?: string }
-  return data.text?.trim() || null
+  return null
+}
+
+async function transcribeAudio(input: {
+  audioUrl?: string | null
+  audioUrls?: string[]
+  audioBase64?: string | null
+  mimeType?: string | null
+}) {
+  if (!OPENAI_API_KEY) return null
+
+  const base64Buffer = input.audioBase64 ? decodeAudioBase64(input.audioBase64) : null
+  if (base64Buffer) {
+    const byBase64 = await transcribeAudioBuffer(base64Buffer, input.mimeType)
+    if (byBase64) return byBase64
+  }
+
+  const urls = [
+    ...(input.audioUrls ?? []),
+    input.audioUrl ?? null,
+  ].filter((value): value is string => Boolean(value))
+
+  if (urls.length > 0) {
+    const media = await downloadMedia(urls)
+    const byUrl = await transcribeAudioBuffer(media.buffer, input.mimeType ?? media.mimeType)
+    if (byUrl) return byUrl
+  }
+
+  return null
 }
 
 async function analyzeImageFromUrl(
@@ -242,7 +310,7 @@ async function analyzeImageFromUrl(
 ) {
   if (!OPENAI_API_KEY) return null
 
-  const media = await downloadMedia(imageUrl)
+  const media = await downloadMedia([imageUrl])
   const imageDataUrl = `data:${media.mimeType};base64,${media.buffer.toString('base64')}`
 
   const prompt = [
@@ -478,9 +546,19 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
 
   let transcription: string | null = null
   let transcriptionStatus: MarcoInterpretation['transcriptionStatus'] = 'not_applicable'
-  if (input.audioUrl) {
+  const hasAudioPayload =
+    Boolean(input.audioUrl) ||
+    Boolean(input.audioBase64) ||
+    Boolean(input.audioUrls && input.audioUrls.length > 0)
+
+  if (hasAudioPayload) {
     try {
-      transcription = await transcribeAudioFromUrl(input.audioUrl, input.mediaMimeType)
+      transcription = await transcribeAudio({
+        audioUrl: input.audioUrl,
+        audioUrls: input.audioUrls,
+        audioBase64: input.audioBase64,
+        mimeType: input.mediaMimeType,
+      })
       transcriptionStatus = transcription ? 'success' : 'failed'
     } catch (error) {
       console.error('[marco] audio_transcription_error', error)

@@ -44,6 +44,22 @@ function pickString(source: JsonObject | null, paths: string[][]) {
   return null
 }
 
+function pickStrings(source: JsonObject | null, paths: string[][]) {
+  if (!source) return [] as string[]
+  const values: string[] = []
+  const seen = new Set<string>()
+
+  for (const path of paths) {
+    const value = pickString(source, [path])
+    if (!value) continue
+    if (seen.has(value)) continue
+    seen.add(value)
+    values.push(value)
+  }
+
+  return values
+}
+
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message
   return String(error)
@@ -61,10 +77,13 @@ function extractIncomingMessage(parsedBody: JsonObject | null) {
       ['payload', 'type'],
     ]) ?? 'text'
 
-  const mediaUrl = pickString(source, [
+  const mediaUrls = pickStrings(source, [
     ['media', 'url'],
     ['image', 'url'],
     ['audio', 'url'],
+    ['audio', 'link'],
+    ['audio', 'downloadUrl'],
+    ['media', 'downloadUrl'],
     ['file', 'url'],
     ['document', 'url'],
     ['video', 'url'],
@@ -103,6 +122,15 @@ function extractIncomingMessage(parsedBody: JsonObject | null) {
     messageType.includes('image') ||
     (mimeType?.startsWith('image/') ?? false)
 
+  const audioBase64 = pickString(source, [
+    ['audio', 'base64'],
+    ['audio', 'data'],
+    ['media', 'base64'],
+    ['media', 'data'],
+  ])
+
+  const mediaUrl = mediaUrls[0] ?? null
+
   return {
     event: asString(parsedBody?.event) ?? 'unknown',
     session: asString(parsedBody?.session),
@@ -113,8 +141,11 @@ function extractIncomingMessage(parsedBody: JsonObject | null) {
     rawText,
     caption,
     mediaUrl,
+    mediaUrls,
     mimeType,
     audioUrl: isAudio ? mediaUrl : null,
+    audioUrls: isAudio ? mediaUrls : [],
+    audioBase64: isAudio ? audioBase64 : null,
     imageUrl: isImage ? mediaUrl : null,
   }
 }
@@ -215,9 +246,16 @@ export async function POST(req: NextRequest) {
       messageId: incoming.messageId,
       fromMe: incoming.fromMe,
       hasText: Boolean(incoming.rawText),
-      hasAudio: Boolean(incoming.audioUrl),
+      hasAudio: Boolean(
+        incoming.audioUrl ||
+        incoming.audioBase64 ||
+        incoming.messageType.includes('audio') ||
+        incoming.messageType.includes('ptt')
+      ),
       hasImage: Boolean(incoming.imageUrl),
       hasMedia: Boolean(incoming.mediaUrl),
+      mediaUrlCount: incoming.mediaUrls.length,
+      hasAudioBase64: Boolean(incoming.audioBase64),
     })
 
     await saveIncomingMessage(incoming.phone, incoming.rawText, parsedBody)
@@ -248,6 +286,8 @@ export async function POST(req: NextRequest) {
       caption: incoming.caption,
       messageType: incoming.messageType,
       audioUrl: incoming.audioUrl,
+      audioUrls: incoming.audioUrls,
+      audioBase64: incoming.audioBase64,
       imageUrl: incoming.imageUrl,
       mediaMimeType: incoming.mimeType,
     })
@@ -270,6 +310,11 @@ export async function POST(req: NextRequest) {
 
     const rawTextForAudit =
       interpretation.normalizedText || incoming.rawText || incoming.caption || null
+    const hasAudioInput =
+      Boolean(incoming.audioUrl) ||
+      Boolean(incoming.audioBase64) ||
+      incoming.messageType.includes('audio') ||
+      incoming.messageType.includes('ptt')
 
     await saveEvent(incoming.phone, rawTextForAudit, interpretation.eventType, {
       intent: interpretation.intent,
@@ -328,7 +373,7 @@ export async function POST(req: NextRequest) {
         sourcePhone: incoming.phone,
         sourceType: incoming.imageUrl
           ? 'whatsapp_image'
-          : incoming.audioUrl
+          : hasAudioInput
             ? 'whatsapp_audio'
             : 'whatsapp_text',
         sourceKeyword: interpretation.intent,
@@ -361,7 +406,7 @@ export async function POST(req: NextRequest) {
     if (interpretation.shouldSendRoute) {
       if (!destination) {
         const routeFallbackReply =
-          incoming.audioUrl &&
+          hasAudioInput &&
           interpretation.transcriptionStatus !== 'success' &&
           !incoming.rawText
             ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto, por exemplo: quero ir para o Terminal B.'
@@ -409,7 +454,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (
-      incoming.audioUrl &&
+      hasAudioInput &&
       interpretation.transcriptionStatus !== 'success' &&
       !interpretation.shouldBlockRoad &&
       !interpretation.asksListBlocks &&
@@ -431,7 +476,7 @@ export async function POST(req: NextRequest) {
       interpretation.suggestedReply ||
       (incoming.imageUrl
         ? `Imagem analisada. ${interpretation.summary || 'Se houver ocorrencia de via, posso registrar e atualizar o roteamento.'}`
-        : incoming.audioUrl && interpretation.transcriptionStatus === 'success'
+        : hasAudioInput && interpretation.transcriptionStatus === 'success'
           ? `Audio transcrito com sucesso. ${interpretation.summary || 'Posso gerar rota ou registrar ocorrencia de via indisponivel.'}`
         : `Entendi seu contexto. ${interpretation.summary || 'Posso gerar rota, registrar ocorrencias e atualizar vias indisponiveis no sistema.'}`)
 
@@ -451,3 +496,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 500 })
   }
 }
+
+
+
+
