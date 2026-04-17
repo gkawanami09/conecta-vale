@@ -295,10 +295,6 @@ export default function RouteMap({
       } catch (err) {
         console.error('[route-map] fetch_route_error', err)
         setError('Nao foi possivel carregar a rota.')
-        if (currentPositionLatLng) {
-          // Fallback visual para nao deixar o usuario sem indicacao de percurso.
-          setRouteCoords([currentPositionLatLng, endLatLng])
-        }
       } finally {
         routeFetchInFlightRef.current = false
         setLoading(false)

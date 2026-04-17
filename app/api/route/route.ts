@@ -10,6 +10,18 @@ type DirectionsRequestOptions = {
   avoidPolygons?: ReturnType<typeof buildAvoidPolygonsFromBlocks>
 }
 
+type RouteGeoJson = {
+  type: string
+  features?: Array<{
+    type?: string
+    geometry?: {
+      type?: string
+      coordinates?: [number, number][]
+    }
+    properties?: Record<string, unknown>
+  }>
+}
+
 async function requestDirections(
   orsApiKey: string,
   options: DirectionsRequestOptions
@@ -43,6 +55,52 @@ async function requestDirections(
   }
 
   return data
+}
+
+async function requestDirectionsOsrm(options: { coordinates: [number, number][] }) {
+  const coordinatesParam = options.coordinates
+    .map(([lng, lat]) => `${lng},${lat}`)
+    .join(';')
+
+  const response = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${coordinatesParam}?overview=full&geometries=geojson`,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(JSON.stringify(data))
+  }
+
+  const coordinates = data?.routes?.[0]?.geometry?.coordinates
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    throw new Error('OSRM sem geometria valida')
+  }
+
+  const geoJson = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates,
+        },
+        properties: {
+          source: 'osrm',
+        },
+      },
+    ],
+  } satisfies RouteGeoJson
+
+  return geoJson
 }
 
 export async function POST(req: NextRequest) {
@@ -90,7 +148,7 @@ export async function POST(req: NextRequest) {
     const avoidPolygons = buildAvoidPolygonsFromBlocks(activeBlocks)
     const detourWaypoints = buildDetourWaypointsFromBlocks(activeBlocks)
 
-    let data: Record<string, unknown>
+    let data: RouteGeoJson
     let routeMode:
       | 'default'
       | 'avoid_polygons'
@@ -133,15 +191,29 @@ export async function POST(req: NextRequest) {
             activeBlocks: activeBlocks.length,
           })
         } catch (defaultError) {
-          console.error('Erro ORS avoid+detour+default:', {
-            avoidError,
-            detourError,
-            defaultError,
-          })
-          return NextResponse.json(
-            { error: 'Erro ao buscar rota no OpenRouteService' },
-            { status: 502 }
-          )
+          try {
+            data = await requestDirectionsOsrm({
+              coordinates: [startCoord, endCoord],
+            })
+            routeMode = 'default_fallback'
+            console.warn('[route.api] osrm_fallback_enabled', {
+              avoidError,
+              detourError,
+              defaultError,
+              activeBlocks: activeBlocks.length,
+            })
+          } catch (osrmError) {
+            console.error('Erro ORS avoid+detour+default+osrm:', {
+              avoidError,
+              detourError,
+              defaultError,
+              osrmError,
+            })
+            return NextResponse.json(
+              { error: 'Erro ao buscar rota no OpenRouteService' },
+              { status: 502 }
+            )
+          }
         }
       }
     }
