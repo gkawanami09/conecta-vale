@@ -201,7 +201,6 @@ export default function RouteMap({
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const routeStartRef = useRef<[number, number] | null>(null)
   const routeRequestKeyRef = useRef<string | null>(null)
   const routeFetchInFlightRef = useRef(false)
 
@@ -209,7 +208,7 @@ export default function RouteMap({
     () => (currentPosition ? [currentPosition[1], currentPosition[0]] : null),
     [currentPosition]
   )
-  const endLatLng: [number, number] = [end[1], end[0]]
+  const endLatLng = useMemo<[number, number]>(() => [end[1], end[0]], [end])
 
   const initialCenter: [number, number] = currentPositionLatLng
     ? [(currentPositionLatLng[0] + endLatLng[0]) / 2, (currentPositionLatLng[1] + endLatLng[1]) / 2]
@@ -217,6 +216,15 @@ export default function RouteMap({
 
   const headingDegrees =
     typeof heading === 'number' && Number.isFinite(heading) ? heading : 0
+
+  const routeStart = useMemo<[number, number] | null>(() => {
+    if (!currentPosition) return null
+
+    // Reduz recálculo excessivo e evita oscilação por ruído de GPS.
+    const lng = Number(currentPosition[0].toFixed(5))
+    const lat = Number(currentPosition[1].toFixed(5))
+    return [lng, lat]
+  }, [currentPosition])
 
   const userIcon = useMemo(
     () =>
@@ -245,11 +253,6 @@ export default function RouteMap({
   )
 
   useEffect(() => {
-    if (!routeStartRef.current && currentPosition) {
-      routeStartRef.current = currentPosition
-    }
-
-    const routeStart = routeStartRef.current
     if (!routeStart) return
 
     const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}|${routeRefreshKey}`
@@ -290,8 +293,12 @@ export default function RouteMap({
         routeRequestKeyRef.current = requestKey
         setRouteCoords(leafletCoords)
       } catch (err) {
-        console.error(err)
+        console.error('[route-map] fetch_route_error', err)
         setError('Nao foi possivel carregar a rota.')
+        if (currentPositionLatLng) {
+          // Fallback visual para nao deixar o usuario sem indicacao de percurso.
+          setRouteCoords([currentPositionLatLng, endLatLng])
+        }
       } finally {
         routeFetchInFlightRef.current = false
         setLoading(false)
@@ -299,7 +306,14 @@ export default function RouteMap({
     }
 
     void fetchRoute()
-  }, [currentPosition, end, routeRefreshKey, routeCoords.length])
+  }, [
+    routeStart,
+    end,
+    routeRefreshKey,
+    routeCoords.length,
+    currentPositionLatLng,
+    endLatLng,
+  ])
 
   useEffect(() => {
     if (!currentPositionLatLng || routeCoords.length < 2) {
