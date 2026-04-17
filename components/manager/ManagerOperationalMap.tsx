@@ -5,13 +5,19 @@ import L from 'leaflet'
 import {
   MapContainer,
   Marker,
+  Polyline,
   Popup,
   TileLayer,
   useMap,
+  useMapEvents,
 } from 'react-leaflet'
-import type { DashboardUser } from '@/lib/manager-dashboard-types'
+import type {
+  DashboardUser,
+  OperationalRoadBlock,
+} from '@/lib/manager-dashboard-types'
 import { managerUserStatusLabel } from '@/lib/manager-status'
 import type { OperationalFixedPoint } from '@/lib/operational-fixed-points'
+import { findMonitoredRoadById } from '@/lib/road-blocks-definitions'
 
 type FocusTarget = {
   lat: number
@@ -19,14 +25,26 @@ type FocusTarget = {
   zoom?: number
 }
 
+export type OperationalEditMode = 'none' | 'add_block' | 'add_fixed_point'
+
+type MapClickPoint = {
+  lat: number
+  lng: number
+}
+
 type ManagerOperationalMapProps = {
   users: DashboardUser[]
   fixedPoints: OperationalFixedPoint[]
+  roadBlocks: OperationalRoadBlock[]
   showUsers: boolean
   showFixedPoints: boolean
+  showRoadBlocks: boolean
   focusTarget: FocusTarget | null
   focusSeq: number
   fitSeq: number
+  editMode: OperationalEditMode
+  previewPoint: MapClickPoint | null
+  onMapPointSelect: (point: MapClickPoint) => void
 }
 
 function formatRelativeTime(value: string | null) {
@@ -42,19 +60,44 @@ function formatRelativeTime(value: string | null) {
   return `${Math.floor(seconds / 3600)}h atras`
 }
 
+function MapClickController({
+  editMode,
+  onMapPointSelect,
+}: {
+  editMode: OperationalEditMode
+  onMapPointSelect: (point: MapClickPoint) => void
+}) {
+  useMapEvents({
+    click(event) {
+      if (editMode === 'none') return
+
+      onMapPointSelect({
+        lat: event.latlng.lat,
+        lng: event.latlng.lng,
+      })
+    },
+  })
+
+  return null
+}
+
 function FitAndFocusController({
   users,
   fixedPoints,
+  roadBlocks,
   showUsers,
   showFixedPoints,
+  showRoadBlocks,
   focusTarget,
   focusSeq,
   fitSeq,
 }: {
   users: DashboardUser[]
   fixedPoints: OperationalFixedPoint[]
+  roadBlocks: OperationalRoadBlock[]
   showUsers: boolean
   showFixedPoints: boolean
+  showRoadBlocks: boolean
   focusTarget: FocusTarget | null
   focusSeq: number
   fitSeq: number
@@ -65,7 +108,9 @@ function FitAndFocusController({
   const visibleUserPoints = useMemo(
     () =>
       users
-        .filter((user) => showUsers && user.sharingEnabled && user.lat !== null && user.lng !== null)
+        .filter(
+          (user) => showUsers && user.sharingEnabled && user.lat !== null && user.lng !== null
+        )
         .map((user) => [user.lat as number, user.lng as number] as [number, number]),
     [users, showUsers]
   )
@@ -78,9 +123,20 @@ function FitAndFocusController({
     [fixedPoints, showFixedPoints]
   )
 
+  const visibleBlockPoints = useMemo(
+    () =>
+      showRoadBlocks
+        ? roadBlocks
+            .filter((block) => block.blockType === 'point')
+            .filter((block) => block.blockLat !== null && block.blockLng !== null)
+            .map((block) => [block.blockLat as number, block.blockLng as number] as [number, number])
+        : [],
+    [roadBlocks, showRoadBlocks]
+  )
+
   const allVisiblePoints = useMemo(
-    () => [...visibleUserPoints, ...visibleFixedPoints],
-    [visibleUserPoints, visibleFixedPoints]
+    () => [...visibleUserPoints, ...visibleFixedPoints, ...visibleBlockPoints],
+    [visibleUserPoints, visibleFixedPoints, visibleBlockPoints]
   )
 
   useEffect(() => {
@@ -117,14 +173,24 @@ function FitAndFocusController({
   return null
 }
 
+function blockDisplayLabel(block: OperationalRoadBlock) {
+  if (block.blockType === 'point') return 'Bloqueio por ponto'
+  return 'Bloqueio de via monitorada'
+}
+
 export default function ManagerOperationalMap({
   users,
   fixedPoints,
+  roadBlocks,
   showUsers,
   showFixedPoints,
+  showRoadBlocks,
   focusTarget,
   focusSeq,
   fitSeq,
+  editMode,
+  previewPoint,
+  onMapPointSelect,
 }: ManagerOperationalMapProps) {
   const defaultCenter: [number, number] = [-21.2848, -50.336]
 
@@ -156,41 +222,162 @@ export default function ManagerOperationalMap({
     []
   )
 
+  const customFixedPointIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'conecta-manager-fixed-custom-wrap',
+        html: '<span class="conecta-manager-fixed-custom-core"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      }),
+    []
+  )
+
+  const pointBlockIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'conecta-manager-block-wrap',
+        html: '<span class="conecta-manager-block-core"></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      }),
+    []
+  )
+
+  const previewBlockIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'conecta-manager-block-preview-wrap',
+        html: '<span class="conecta-manager-block-preview-core"></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      }),
+    []
+  )
+
+  const previewFixedPointIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'conecta-manager-fixed-preview-wrap',
+        html: '<span class="conecta-manager-fixed-preview-core"></span>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      }),
+    []
+  )
+
+  const roadBlocksByRoad = useMemo(
+    () =>
+      roadBlocks.filter(
+        (block) => block.blockType === 'road' && block.monitoredRoadId !== null
+      ),
+    [roadBlocks]
+  )
+
+  const pointBlocks = useMemo(
+    () =>
+      roadBlocks.filter(
+        (block) =>
+          block.blockType === 'point' &&
+          block.blockLat !== null &&
+          block.blockLng !== null
+      ),
+    [roadBlocks]
+  )
+
   return (
     <div className='h-full w-full'>
       <MapContainer
         center={defaultCenter}
         zoom={14}
         zoomControl={false}
-        style={{ width: '100%', height: '100%' }}
+        style={{
+          width: '100%',
+          height: '100%',
+          cursor: editMode === 'none' ? 'grab' : 'crosshair',
+        }}
       >
         <TileLayer
           attribution='&copy; OpenStreetMap contributors'
           url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
         />
 
+        <MapClickController editMode={editMode} onMapPointSelect={onMapPointSelect} />
+
         <FitAndFocusController
           users={users}
           fixedPoints={fixedPoints}
+          roadBlocks={roadBlocks}
           showUsers={showUsers}
           showFixedPoints={showFixedPoints}
+          showRoadBlocks={showRoadBlocks}
           focusTarget={focusTarget}
           focusSeq={focusSeq}
           fitSeq={fitSeq}
         />
+
+        {showRoadBlocks &&
+          roadBlocksByRoad.map((block) => {
+            const road = block.monitoredRoadId
+              ? findMonitoredRoadById(block.monitoredRoadId)
+              : null
+
+            if (!road) return null
+
+            return (
+              <Polyline
+                key={block.roadId}
+                positions={road.blockedSegment}
+                pathOptions={{ color: '#ef4444', weight: 6, opacity: 0.82 }}
+              >
+                <Popup>
+                  <div className='space-y-1'>
+                    <p className='text-sm font-semibold text-slate-900'>{block.roadName}</p>
+                    <p className='text-xs text-slate-700'>{blockDisplayLabel(block)}</p>
+                    <p className='text-xs text-slate-600'>
+                      Atualizado: {formatRelativeTime(block.updatedAt)}
+                    </p>
+                  </div>
+                </Popup>
+              </Polyline>
+            )
+          })}
+
+        {showRoadBlocks &&
+          pointBlocks.map((block) => (
+            <Marker
+              key={block.roadId}
+              position={[block.blockLat as number, block.blockLng as number]}
+              icon={pointBlockIcon}
+            >
+              <Popup>
+                <div className='space-y-1'>
+                  <p className='text-sm font-semibold text-slate-900'>{block.roadName}</p>
+                  <p className='text-xs text-slate-700'>
+                    {blockDisplayLabel(block)}
+                    {block.blockRadiusMeters ? ` (${block.blockRadiusMeters}m)` : ''}
+                  </p>
+                  <p className='text-xs text-slate-600'>
+                    Atualizado: {formatRelativeTime(block.updatedAt)}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
 
         {showFixedPoints &&
           fixedPoints.map((point) => (
             <Marker
               key={point.id}
               position={[point.lat, point.lng]}
-              icon={fixedPointIcon}
+              icon={point.source === 'custom' ? customFixedPointIcon : fixedPointIcon}
             >
               <Popup>
                 <div className='space-y-1'>
                   <p className='text-sm font-semibold text-slate-900'>{point.name}</p>
                   <p className='text-xs text-slate-600'>
                     {point.kind === 'terminal' ? 'Terminal operacional' : 'Ponto estrategico'}
+                    {point.source === 'custom' ? ' (gestor)' : ''}
                   </p>
                 </div>
               </Popup>
@@ -200,10 +387,7 @@ export default function ManagerOperationalMap({
         {showUsers &&
           users
             .filter(
-              (user) =>
-                user.sharingEnabled &&
-                user.lat !== null &&
-                user.lng !== null
+              (user) => user.sharingEnabled && user.lat !== null && user.lng !== null
             )
             .map((user) => (
               <Marker
@@ -229,12 +413,38 @@ export default function ManagerOperationalMap({
                 </Popup>
               </Marker>
             ))}
+
+        {previewPoint && editMode === 'add_block' && (
+          <Marker
+            position={[previewPoint.lat, previewPoint.lng]}
+            icon={previewBlockIcon}
+          >
+            <Popup>
+              <p className='text-xs text-slate-700'>Preview de bloqueio operacional</p>
+            </Popup>
+          </Marker>
+        )}
+
+        {previewPoint && editMode === 'add_fixed_point' && (
+          <Marker
+            position={[previewPoint.lat, previewPoint.lng]}
+            icon={previewFixedPointIcon}
+          >
+            <Popup>
+              <p className='text-xs text-slate-700'>Preview de ponto fixo</p>
+            </Popup>
+          </Marker>
+        )}
       </MapContainer>
 
       <style jsx global>{`
         .conecta-manager-user-active-wrap,
         .conecta-manager-user-stale-wrap,
-        .conecta-manager-fixed-wrap {
+        .conecta-manager-fixed-wrap,
+        .conecta-manager-fixed-custom-wrap,
+        .conecta-manager-fixed-preview-wrap,
+        .conecta-manager-block-wrap,
+        .conecta-manager-block-preview-wrap {
           background: transparent;
           border: 0;
         }
@@ -256,13 +466,67 @@ export default function ManagerOperationalMap({
           background: #d97706;
         }
 
-        .conecta-manager-fixed-core {
+        .conecta-manager-fixed-core,
+        .conecta-manager-fixed-custom-core,
+        .conecta-manager-fixed-preview-core {
           position: absolute;
           inset: 0;
           border-radius: 5px;
           border: 2px solid #fff;
-          background: #006341;
           box-shadow: 0 0 0 3px rgba(0, 99, 65, 0.32);
+        }
+
+        .conecta-manager-fixed-core {
+          background: #006341;
+        }
+
+        .conecta-manager-fixed-custom-core {
+          background: #059669;
+        }
+
+        .conecta-manager-fixed-preview-core {
+          background: #16a34a;
+          opacity: 0.55;
+          box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.24);
+        }
+
+        .conecta-manager-block-core,
+        .conecta-manager-block-preview-core {
+          position: absolute;
+          inset: 0;
+          border-radius: 999px;
+          border: 2px solid #fff;
+          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.34);
+          background: #ef4444;
+        }
+
+        .conecta-manager-block-core::before,
+        .conecta-manager-block-core::after,
+        .conecta-manager-block-preview-core::before,
+        .conecta-manager-block-preview-core::after {
+          content: '';
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 12px;
+          height: 2px;
+          background: #fff;
+          transform-origin: center;
+        }
+
+        .conecta-manager-block-core::before,
+        .conecta-manager-block-preview-core::before {
+          transform: translate(-50%, -50%) rotate(45deg);
+        }
+
+        .conecta-manager-block-core::after,
+        .conecta-manager-block-preview-core::after {
+          transform: translate(-50%, -50%) rotate(-45deg);
+        }
+
+        .conecta-manager-block-preview-core {
+          opacity: 0.6;
+          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
         }
       `}</style>
     </div>

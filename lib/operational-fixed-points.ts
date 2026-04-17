@@ -5,7 +5,9 @@ export type OperationalFixedPoint = {
   name: string
   lng: number
   lat: number
+  aliases?: string[]
   kind: 'terminal' | 'operational'
+  source: 'base' | 'custom'
 }
 
 function destinationPoint(key: string, fallbackName: string, kind: OperationalFixedPoint['kind'], fallbackCoords: [number, number]) {
@@ -16,11 +18,15 @@ function destinationPoint(key: string, fallbackName: string, kind: OperationalFi
     name: destination?.name ?? fallbackName,
     lng: destination?.lng ?? fallbackCoords[0],
     lat: destination?.lat ?? fallbackCoords[1],
+    aliases: destination?.aliases ?? [],
     kind,
+    source: 'base',
   } satisfies OperationalFixedPoint
 }
 
-export const OPERATIONAL_FIXED_POINTS: OperationalFixedPoint[] = [
+export const BASE_OPERATIONAL_FIXED_POINTS: OperationalFixedPoint[] = [
   destinationPoint('terminal-b', 'Terminal B', 'terminal', [-50.3348, -21.2826]),
   destinationPoint('oficina', 'Oficina', 'operational', [-50.3388, -21.2902]),
 ]
+
+export const OPERATIONAL_FIXED_POINTS = BASE_OPERATIONAL_FIXED_POINTS

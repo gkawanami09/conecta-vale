@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getManagerSessionFromRequest } from '@/lib/manager-auth'
 import type { DashboardUser, OperationalSnapshot } from '@/lib/manager-dashboard-types'
-import { OPERATIONAL_FIXED_POINTS } from '@/lib/operational-fixed-points'
+import { listOperationalFixedPoints } from '@/lib/operational-fixed-points-store'
+import { getActiveRoadBlocksGlobal } from '@/lib/road-blocks'
 import { listSharedLocations } from '@/lib/shared-location-store'
 
 function userDisplayName(user: {
@@ -47,6 +48,8 @@ export async function GET(request: NextRequest) {
   }
 
   const sharedLocations = await listSharedLocations()
+  const fixedPoints = await listOperationalFixedPoints()
+  const roadBlocks = await getActiveRoadBlocksGlobal()
 
   const users = sortUsers(
     sharedLocations.map((item) => ({
@@ -75,14 +78,17 @@ export async function GET(request: NextRequest) {
 
   const snapshot: OperationalSnapshot = {
     users,
-    fixedPoints: OPERATIONAL_FIXED_POINTS,
+    fixedPoints,
+    roadBlocks,
     summary: {
       activeUsers,
       staleUsers,
       sharingEnabledUsers,
-      fixedPoints: OPERATIONAL_FIXED_POINTS.length,
+      fixedPoints: fixedPoints.length,
+      activeRoadBlocks: roadBlocks.length,
       lastUpdate,
-      operationalStatus: staleUsers > 0 ? 'attention' : 'normal',
+      operationalStatus:
+        staleUsers > 0 || roadBlocks.length > 0 ? 'attention' : 'normal',
     },
   }
 
