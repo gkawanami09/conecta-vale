@@ -508,9 +508,9 @@ function fallbackInterpretation(input: {
   } else if (destination || isRouteKeyword(input.combinedText)) {
     intent = 'route_request'
     eventType = 'solicitacao_rota'
-  } else if (input.messageType === 'image') {
+  } else if ((input.messageType ?? '').includes('image')) {
     intent = 'image_occurrence'
-  } else if (input.messageType === 'audio' || input.transcription) {
+  } else if ((input.messageType ?? '').includes('audio') || input.transcription) {
     intent = 'audio_occurrence'
   }
 
@@ -568,6 +568,7 @@ Objetivo:
 - Interpretar mensagens de WhatsApp (texto, audio transcrito e imagem analisada).
 - Ser tolerante a erros de digitacao e abreviacoes.
 - Nao afirmar acoes externas que nao foram executadas.
+- Evitar enviar rota errada: se destino estiver ambiguo, sinalizar duvida.
 
 Contexto de vias monitoradas (bloqueio global permitido):
 ${JSON.stringify(roadsContext, null, 2)}
@@ -607,9 +608,12 @@ Retorne APENAS JSON valido, no formato:
 }
 
 Regras de resposta:
-- suggested_reply deve ser natural, operacional e transparente.
+- suggested_reply deve ser natural, operacional, transparente e objetivo.
+- Mantenha tom profissional e amigavel, com no maximo 2 frases curtas.
 - Nunca diga que acionou equipes externas ou executou algo fora do sistema.
 - Pode dizer: ocorrencia registrada no sistema, trecho marcado indisponivel, solicitacao preparada para encaminhamento.
+- Para audio com transcricao valida, use a transcricao como fonte principal para resumo.
+- Se destino nao estiver claro, use should_send_route=false e destination_text=null.
 
 Dados da mensagem:
 - Tipo: ${input.messageType ?? 'text'}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findDestinationByText } from '@/lib/destinations'
+import { resolveDestinationFromTexts } from '@/lib/destinations'
 import {
   activateRoadBlockGlobal,
   clearAllRoadBlocksGlobal,
@@ -63,6 +63,49 @@ function pickStrings(source: JsonObject | null, paths: string[][]) {
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+function truncateText(value: string, max = 180) {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}...`
+}
+
+function formatRouteClarificationReply() {
+  return (
+    'Entendi que voce quer rota. Me confirme o destino para eu enviar o link correto. ' +
+    'Exemplo: quero ir para o Terminal B.'
+  )
+}
+
+function formatAmbiguousDestinationReply(destinationNames: string[]) {
+  const list = destinationNames.join(' ou ')
+  return `Encontrei mais de um destino possivel (${list}). Me confirme qual voce quer.`
+}
+
+function formatGenericReply(input: {
+  hasImage: boolean
+  hasAudioInput: boolean
+  transcriptionStatus: string
+  transcription: string | null
+  summary: string
+  suggestedReply: string | null
+}) {
+  if (input.suggestedReply) return input.suggestedReply
+
+  if (
+    input.hasAudioInput &&
+    input.transcriptionStatus === 'success' &&
+    input.transcription
+  ) {
+    const audioPreview = truncateText(input.transcription, 90)
+    return `Entendi seu audio: "${audioPreview}". ${input.summary || 'Posso ajudar com rota, bloqueios e suporte operacional.'}`
+  }
+
+  if (input.hasImage) {
+    return `Imagem recebida e analisada. ${input.summary || 'Se houver ocorrencia, eu registro e atualizo o sistema.'}`
+  }
+
+  return `Entendi seu contexto. ${input.summary || 'Posso gerar rota, registrar ocorrencias e consultar bloqueios.'}`
 }
 
 function extractIncomingMessage(parsedBody: JsonObject | null) {
@@ -150,7 +193,11 @@ function extractIncomingMessage(parsedBody: JsonObject | null) {
   }
 }
 
-async function saveIncomingMessage(phone: string | null, text: string | null, payload: JsonObject) {
+async function saveIncomingMessage(
+  phone: string | null,
+  text: string | null,
+  payload: JsonObject
+) {
   try {
     const { error } = await supabaseAdmin.from('messages').insert({
       phone,
@@ -168,7 +215,12 @@ async function saveIncomingMessage(phone: string | null, text: string | null, pa
   }
 }
 
-async function saveEvent(phone: string, rawText: string | null, eventType: string, parsedData: JsonObject) {
+async function saveEvent(
+  phone: string,
+  rawText: string | null,
+  eventType: string,
+  parsedData: JsonObject
+) {
   try {
     const { error } = await supabaseAdmin.from('events').insert({
       phone,
@@ -187,17 +239,22 @@ async function saveEvent(phone: string, rawText: string | null, eventType: strin
   }
 }
 
-async function safeReply(phone: string, kind: string, text: string, metadata?: JsonObject) {
+async function safeReply(
+  phone: string,
+  kind: string,
+  text: string,
+  metadata?: JsonObject
+) {
   try {
     const sendResult = await sendWhatsAppText(phone, text)
-    console.log(`${LOG_PREFIX} waha_send_result`, {
+    console.log(`${LOG_PREFIX} send_result`, {
       kind,
       phone,
       sendResult,
       ...(metadata ?? {}),
     })
   } catch (error) {
-    console.error(`${LOG_PREFIX} waha_send_error`, {
+    console.error(`${LOG_PREFIX} send_error`, {
       kind,
       phone,
       error: errorMessage(error),
@@ -249,9 +306,9 @@ export async function POST(req: NextRequest) {
       hasText: Boolean(incoming.rawText),
       hasAudio: Boolean(
         incoming.audioUrl ||
-        incoming.audioBase64 ||
-        incoming.messageType.includes('audio') ||
-        incoming.messageType.includes('ptt')
+          incoming.audioBase64 ||
+          incoming.messageType.includes('audio') ||
+          incoming.messageType.includes('ptt')
       ),
       hasImage: Boolean(incoming.imageUrl),
       hasMedia: Boolean(incoming.mediaUrl),
@@ -375,9 +432,9 @@ export async function POST(req: NextRequest) {
         sourceMessage: rawTextForAudit,
       })
 
-      const blockReply = interpretation.suggestedReply
-        ? interpretation.suggestedReply
-        : `Ocorrencia registrada no sistema. Trecho ${interpretation.roadText ?? 'informado'} marcado como indisponivel e roteamento atualizado para evitar essa via.`
+      const blockReply =
+        interpretation.suggestedReply ||
+        `Ocorrencia registrada no sistema. Trecho ${interpretation.roadText ?? 'informado'} marcado como indisponivel e roteamento atualizado para evitar essa via.`
 
       await safeReply(incoming.phone, 'road_block_ack', blockReply, {
         roadId: interpretation.roadId,
@@ -394,9 +451,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const destination =
-      findDestinationByText(interpretation.destinationText) ??
-      findDestinationByText(interpretation.normalizedText)
+    const destinationResolution = resolveDestinationFromTexts([
+      interpretation.destinationText,
+      incoming.rawText,
+      incoming.caption,
+      interpretation.transcription,
+      interpretation.normalizedText,
+    ])
+    const destination = destinationResolution.destination
 
     if (interpretation.shouldSendRoute) {
       if (!destination) {
@@ -404,8 +466,8 @@ export async function POST(req: NextRequest) {
           hasAudioInput &&
           interpretation.transcriptionStatus !== 'success' &&
           !incoming.rawText
-            ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto, por exemplo: quero ir para o Terminal B.'
-            : 'Nao consegui identificar o destino. Tente algo como: quero ir para o Terminal B.'
+            ? 'Recebi seu audio, mas nao consegui transcrever com confianca. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+            : formatRouteClarificationReply()
 
         await safeReply(
           incoming.phone,
@@ -419,6 +481,30 @@ export async function POST(req: NextRequest) {
         )
       }
 
+      if (destinationResolution.confidence === 'low') {
+        const destinationOptions = destinationResolution.candidates
+          .slice(0, 2)
+          .map((candidate) => candidate.destination.name)
+
+        if (destinationOptions.length > 1) {
+          await safeReply(
+            incoming.phone,
+            'destination_ambiguous_reply',
+            formatAmbiguousDestinationReply(destinationOptions)
+          )
+
+          return NextResponse.json(
+            {
+              ok: true,
+              handled: true,
+              destinationAmbiguous: true,
+              options: destinationOptions,
+            },
+            { status: 200 }
+          )
+        }
+      }
+
       const normalizedPhone = incoming.phone.replace(/\D/g, '')
       const shareId = normalizedPhone ? `phone:${normalizedPhone}` : null
 
@@ -426,6 +512,7 @@ export async function POST(req: NextRequest) {
         userPhone: incoming.phone,
         shareId,
       })
+
       console.log(`${LOG_PREFIX} route_link_generated`, {
         phone: incoming.phone,
         destination: destination.name,
@@ -444,13 +531,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, handled: true }, { status: 200 })
     }
 
+    if (interpretation.intent === 'route_request' && !destination) {
+      await safeReply(
+        incoming.phone,
+        'route_without_destination_reply',
+        formatRouteClarificationReply()
+      )
+
+      return NextResponse.json(
+        { ok: true, handled: true, routeNeedsDestination: true },
+        { status: 200 }
+      )
+    }
+
     if (interpretation.intent === 'external_forward_request') {
       const contextualForwardReply =
         `Ja encaminhei sua mensagem para ${interpretation.forwardTarget ?? 'o responsavel informado'} e registrei essa solicitacao no sistema.`
 
-      await safeReply(incoming.phone, 'external_forward_reply', contextualForwardReply, {
-        summary: interpretation.summary,
-      })
+      await safeReply(
+        incoming.phone,
+        'external_forward_reply',
+        contextualForwardReply,
+        {
+          summary: interpretation.summary,
+        }
+      )
       return NextResponse.json({ ok: true, handled: true }, { status: 200 })
     }
 
@@ -463,23 +568,28 @@ export async function POST(req: NextRequest) {
     ) {
       const audioFailureReply =
         interpretation.transcriptionStatus === 'missing_media_url'
-          ? 'Recebi seu áudio, mas a mídia não chegou completa no webhook. Reenvie o áudio ou envie em texto para eu gerar a rota.'
-          : 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+          ? 'Recebi seu audio, mas a midia nao chegou completa no webhook. Reenvie o audio ou envie em texto para eu gerar a rota.'
+          : 'Recebi seu audio, mas nao consegui transcrever com confianca. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
 
-      await safeReply(incoming.phone, 'audio_transcription_failed_reply', audioFailureReply)
+      await safeReply(
+        incoming.phone,
+        'audio_transcription_failed_reply',
+        audioFailureReply
+      )
       return NextResponse.json(
         { ok: true, handled: true, audioTranscriptionFailed: true },
         { status: 200 }
       )
     }
 
-    const genericReply =
-      interpretation.suggestedReply ||
-      (incoming.imageUrl
-        ? `Imagem analisada. ${interpretation.summary || 'Se houver ocorrencia de via, posso registrar e atualizar o roteamento.'}`
-        : hasAudioInput && interpretation.transcriptionStatus === 'success'
-          ? `Audio transcrito com sucesso. ${interpretation.summary || 'Posso gerar rota ou registrar ocorrencia de via indisponivel.'}`
-        : `Entendi seu contexto. ${interpretation.summary || 'Posso gerar rota, registrar ocorrencias e atualizar vias indisponiveis no sistema.'}`)
+    const genericReply = formatGenericReply({
+      hasImage: Boolean(incoming.imageUrl),
+      hasAudioInput,
+      transcriptionStatus: interpretation.transcriptionStatus,
+      transcription: interpretation.transcription,
+      summary: interpretation.summary,
+      suggestedReply: interpretation.suggestedReply,
+    })
 
     await safeReply(incoming.phone, 'generic_reply', genericReply)
 
@@ -497,7 +607,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 500 })
   }
 }
-
-
-
-
