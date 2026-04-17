@@ -377,6 +377,45 @@ async function transcribeAudio(input: {
   return null
 }
 
+async function resolveImageUrl(input: {
+  imageUrl?: string | null
+  messageType?: string | null
+  session?: string | null
+  chatId?: string | null
+  messageId?: string | null
+}) {
+  if (input.imageUrl) {
+    return input.imageUrl
+  }
+
+  const isImageMessage =
+    (input.messageType ?? '').includes('image') ||
+    (input.messageType ?? '').includes('photo')
+
+  if (!isImageMessage) {
+    return null
+  }
+
+  const fromMessageById = await getMessageMediaByIdFromWaha({
+    session: input.session,
+    chatId: input.chatId,
+    messageId: input.messageId,
+  })
+
+  if (!fromMessageById?.mediaUrl) {
+    return null
+  }
+
+  if (
+    fromMessageById.mimeType &&
+    !fromMessageById.mimeType.startsWith('image/')
+  ) {
+    return null
+  }
+
+  return fromMessageById.mediaUrl
+}
+
 async function analyzeImageFromUrl(
   imageUrl: string,
   caption: string | null,
@@ -647,15 +686,27 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
   }
 
   let imageAssessment: string | null = null
-  if (input.imageUrl) {
-    try {
-      const imageAnalysis = await analyzeImageFromUrl(input.imageUrl, caption, rawText)
+  try {
+    const resolvedImageUrl = await resolveImageUrl({
+      imageUrl: input.imageUrl,
+      messageType: input.messageType,
+      session: input.session,
+      chatId: input.chatId,
+      messageId: input.messageId,
+    })
+
+    if (resolvedImageUrl) {
+      const imageAnalysis = await analyzeImageFromUrl(
+        resolvedImageUrl,
+        caption,
+        rawText
+      )
       if (imageAnalysis) {
         imageAssessment = `issue=${imageAnalysis.issueType}; summary=${imageAnalysis.summary}; has_issue=${imageAnalysis.hasOperationalIssue}`
       }
-    } catch (error) {
-      console.error('[marco] image_analysis_error', error)
     }
+  } catch (error) {
+    console.error('[marco] image_analysis_error', error)
   }
 
   const combinedText = [rawText, caption, transcription, imageAssessment]

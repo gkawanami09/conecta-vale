@@ -203,6 +203,7 @@ async function safeReply(phone: string, kind: string, text: string, metadata?: J
       error: errorMessage(error),
       ...(metadata ?? {}),
     })
+    throw error
   }
 }
 
@@ -270,15 +271,6 @@ export async function POST(req: NextRequest) {
 
     if (!incoming.phone) {
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
-    }
-
-    if (incoming.imageUrl && !incoming.rawText && !incoming.caption) {
-      await safeReply(
-        incoming.phone,
-        'image_needs_instruction_reply',
-        'Recebi a imagem. O que voce quer que eu faca com ela? Posso encaminhar, registrar ocorrencia operacional ou analisar bloqueio de via.'
-      )
-      return NextResponse.json({ ok: true, handled: true, imageNeedsInstruction: true }, { status: 200 })
     }
 
     const interpretation = await interpretMarcoMessage({
