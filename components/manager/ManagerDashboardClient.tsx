@@ -13,6 +13,7 @@ import {
 } from '@/lib/manager-status'
 import type { OperationalEditMode } from '@/components/manager/ManagerOperationalMap'
 import { findMonitoredRoadById } from '@/lib/road-blocks-definitions'
+import { MANAGER_SAO_LUIZ_INITIAL_VIEW } from '@/lib/manager-map-defaults'
 
 const ManagerOperationalMap = dynamic(
   () => import('@/components/manager/ManagerOperationalMap'),
@@ -63,8 +64,12 @@ export default function ManagerDashboardClient({
   const [showFixedPoints, setShowFixedPoints] = useState(true)
   const [showRoadBlocks, setShowRoadBlocks] = useState(true)
   const [showStaleUsers, setShowStaleUsers] = useState(true)
-  const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null)
-  const [focusSeq, setFocusSeq] = useState(0)
+  const [focusTarget, setFocusTarget] = useState<FocusTarget | null>({
+    lat: MANAGER_SAO_LUIZ_INITIAL_VIEW.lat,
+    lng: MANAGER_SAO_LUIZ_INITIAL_VIEW.lng,
+    zoom: MANAGER_SAO_LUIZ_INITIAL_VIEW.zoom,
+  })
+  const [focusSeq, setFocusSeq] = useState(1)
   const [fitSeq, setFitSeq] = useState(0)
 
   const [editMode, setEditMode] = useState<OperationalEditMode>('none')
@@ -609,18 +614,16 @@ export default function ManagerDashboardClient({
                         {point.source === 'custom' ? 'Criado pelo gestor' : 'Ponto base do sistema'}
                       </p>
                     </button>
-                    {point.source === 'custom' && (
-                      <button
-                        type='button'
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void removeFixedPoint(point.id)
-                        }}
-                        className='mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800'
-                      >
-                        Remover ponto
-                      </button>
-                    )}
+                    <button
+                      type='button'
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void removeFixedPoint(point.id)
+                      }}
+                      className='mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800'
+                    >
+                      Remover ponto
+                    </button>
                   </div>
                 ))}
               </div>

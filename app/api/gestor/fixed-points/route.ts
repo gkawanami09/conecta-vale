@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   createCustomOperationalFixedPoint,
-  deactivateCustomOperationalFixedPoint,
+  deactivateOperationalFixedPoint,
   listOperationalFixedPoints,
 } from '@/lib/operational-fixed-points-store'
 
@@ -68,7 +68,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    await deactivateCustomOperationalFixedPoint(pointId)
+    await deactivateOperationalFixedPoint(pointId)
 
     const fixedPoints = await listOperationalFixedPoints()
     return NextResponse.json({ ok: true, fixedPoints }, { status: 200 })

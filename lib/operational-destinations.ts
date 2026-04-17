@@ -5,7 +5,10 @@ import {
   DESTINATIONS,
   resolveDestinationFromTextsInCatalog,
 } from '@/lib/destinations'
-import { listCustomOperationalFixedPoints } from '@/lib/operational-fixed-points-store'
+import {
+  listCustomOperationalFixedPoints,
+  listDisabledBaseOperationalFixedPointIds,
+} from '@/lib/operational-fixed-points-store'
 
 type OperationalDestination = Destination & {
   source: 'base' | 'custom'
@@ -43,12 +46,17 @@ function dedupeDestinations(destinations: OperationalDestination[]) {
 }
 
 export async function listOperationalDestinations() {
-  const customPoints = await listCustomOperationalFixedPoints()
+  const [customPoints, disabledBasePointIds] = await Promise.all([
+    listCustomOperationalFixedPoints(),
+    listDisabledBaseOperationalFixedPointIds(),
+  ])
 
-  const baseDestinations: OperationalDestination[] = DESTINATIONS.map((item) => ({
-    ...item,
-    source: 'base',
-  }))
+  const baseDestinations: OperationalDestination[] = DESTINATIONS
+    .filter((item) => !disabledBasePointIds.has(item.key))
+    .map((item) => ({
+      ...item,
+      source: 'base',
+    }))
 
   const customDestinations: OperationalDestination[] = customPoints.map((point) => ({
     key: `custom-${point.id}`,

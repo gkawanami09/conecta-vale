@@ -23,6 +23,10 @@ type CustomOperationalFixedPointRow = {
   updated_at: string | null
 }
 
+const BASE_POINT_BY_ID = new Map(
+  BASE_OPERATIONAL_FIXED_POINTS.map((point) => [point.id, point] as const)
+)
+
 function asNumber(value: unknown) {
   const numberValue = Number(value)
   return Number.isFinite(numberValue) ? numberValue : null
@@ -89,11 +93,44 @@ export async function listCustomOperationalFixedPoints() {
     .filter((item) => asNumber(item.lat) !== null && asNumber(item.lng) !== null)
 }
 
+export async function listDisabledBaseOperationalFixedPointIds() {
+  const basePointIds = Array.from(BASE_POINT_BY_ID.keys())
+  if (basePointIds.length === 0) return new Set<string>()
+
+  const { data, error } = await supabaseAdmin
+    .from('operational_fixed_points')
+    .select('point_id, active')
+    .in('point_id', basePointIds)
+
+  if (error) {
+    console.error('[operational-fixed-points] list_disabled_base_error', error)
+    return new Set<string>()
+  }
+
+  const disabledIds = new Set<string>()
+
+  for (const row of (data ?? []) as Array<{ point_id: string; active: boolean | null }>) {
+    if (!row.point_id) continue
+    if (row.active === false) {
+      disabledIds.add(row.point_id)
+    }
+  }
+
+  return disabledIds
+}
+
 export async function listOperationalFixedPoints() {
-  const customPoints = await listCustomOperationalFixedPoints()
+  const [customPoints, disabledBasePointIds] = await Promise.all([
+    listCustomOperationalFixedPoints(),
+    listDisabledBaseOperationalFixedPointIds(),
+  ])
+
+  const basePoints = BASE_OPERATIONAL_FIXED_POINTS.filter(
+    (point) => !disabledBasePointIds.has(point.id)
+  )
 
   return dedupeOperationalFixedPoints([
-    ...BASE_OPERATIONAL_FIXED_POINTS,
+    ...basePoints,
     ...customPoints.map((item) => ({
       id: item.id,
       name: item.name,
@@ -184,4 +221,44 @@ export async function deactivateCustomOperationalFixedPoint(pointId: string) {
     })
     throw new Error('Falha ao desativar ponto fixo operacional')
   }
+}
+
+export async function deactivateOperationalFixedPoint(pointId: string) {
+  const id = pointId.trim()
+  if (!id) {
+    throw new Error('pointId invalido')
+  }
+
+  const basePoint = BASE_POINT_BY_ID.get(id)
+  if (basePoint) {
+    const payload = {
+      point_id: basePoint.id,
+      name: basePoint.name,
+      aliases:
+        basePoint.aliases && basePoint.aliases.length > 0 ? basePoint.aliases : null,
+      lng: basePoint.lng,
+      lat: basePoint.lat,
+      kind: basePoint.kind,
+      active: false,
+      created_by: 'manager_dashboard',
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error } = await supabaseAdmin
+      .from('operational_fixed_points')
+      .upsert(payload, { onConflict: 'point_id' })
+
+    if (error) {
+      console.error('[operational-fixed-points] deactivate_base_error', {
+        pointId: id,
+        payload,
+        error,
+      })
+      throw new Error('Falha ao desativar ponto base')
+    }
+
+    return
+  }
+
+  await deactivateCustomOperationalFixedPoint(id)
 }

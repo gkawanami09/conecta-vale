@@ -17,6 +17,7 @@ import type {
 import { managerUserStatusLabel } from '@/lib/manager-status'
 import type { OperationalFixedPoint } from '@/lib/operational-fixed-points'
 import { findMonitoredRoadById } from '@/lib/road-blocks-definitions'
+import { MANAGER_SAO_LUIZ_INITIAL_VIEW } from '@/lib/manager-map-defaults'
 
 type FocusTarget = {
   lat: number
@@ -236,7 +237,10 @@ export default function ManagerOperationalMap({
   previewPoint,
   onMapPointSelect,
 }: ManagerOperationalMapProps) {
-  const defaultCenter: [number, number] = [-21.2848, -50.336]
+  const defaultCenter: [number, number] = [
+    MANAGER_SAO_LUIZ_INITIAL_VIEW.lat,
+    MANAGER_SAO_LUIZ_INITIAL_VIEW.lng,
+  ]
 
   const userIcons = useMemo(() => {
     return {
