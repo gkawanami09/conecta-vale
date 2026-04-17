@@ -69,6 +69,7 @@ type RouteApiResponse = {
 
 const EARTH_RADIUS_METERS = 6371000
 const OFF_ROUTE_THRESHOLD_METERS = 45
+const POINT_BLOCK_DISPLAY_MIN_RADIUS_METERS = 60
 
 function toRad(value: number) {
   return (value * Math.PI) / 180
@@ -480,7 +481,7 @@ export default function RouteMap({
           <Circle
             key={`${block.roadId}-radius`}
             center={[block.blockLat as number, block.blockLng as number]}
-            radius={Math.max(30, block.blockRadiusMeters ?? 90)}
+            radius={Math.max(POINT_BLOCK_DISPLAY_MIN_RADIUS_METERS, block.blockRadiusMeters ?? 90)}
             pathOptions={{
               color: '#ef4444',
               weight: 2,

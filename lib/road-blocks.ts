@@ -47,6 +47,7 @@ type RoadBlockRow = {
 const POINT_BLOCK_DEFAULT_RADIUS_METERS = 90
 const POINT_BLOCK_MIN_RADIUS_METERS = 20
 const POINT_BLOCK_MAX_RADIUS_METERS = 500
+const POINT_BLOCK_ROUTE_MIN_RADIUS_METERS = 60
 const EARTH_RADIUS_METERS = 6378137
 
 function parseNumber(value: unknown) {
@@ -68,6 +69,10 @@ function clampPointBlockRadius(radius: number | null | undefined) {
     POINT_BLOCK_MIN_RADIUS_METERS,
     Math.min(POINT_BLOCK_MAX_RADIUS_METERS, Math.round(radius))
   )
+}
+
+function getPointBlockRouteRadiusMeters(radius: number | null | undefined) {
+  return Math.max(POINT_BLOCK_ROUTE_MIN_RADIUS_METERS, clampPointBlockRadius(radius))
 }
 
 function normalizeBlockType(row: RoadBlockRow): RoadBlockType {
@@ -229,7 +234,7 @@ function buildPointBlockAvoidPolygons(pointBlocks: ActiveRoadBlock[]) {
       buildCirclePolygon({
         lng: item.blockLng as number,
         lat: item.blockLat as number,
-        radiusMeters: clampPointBlockRadius(item.blockRadiusMeters),
+        radiusMeters: getPointBlockRouteRadiusMeters(item.blockRadiusMeters),
       })
     )
 }
@@ -259,7 +264,7 @@ function buildPointBlockDetourWaypoints(pointBlocks: ActiveRoadBlock[]) {
 
     const lng = block.blockLng as number
     const lat = block.blockLat as number
-    const radius = clampPointBlockRadius(block.blockRadiusMeters)
+    const radius = getPointBlockRouteRadiusMeters(block.blockRadiusMeters)
     const offsetMeters = Math.max(140, radius * 2.2)
     const deltaLat = metersToDegreesLat(offsetMeters)
     const deltaLng = metersToDegreesLng(offsetMeters, lat)

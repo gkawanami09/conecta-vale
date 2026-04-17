@@ -4,6 +4,7 @@ import {
   buildDetourWaypointsFromBlocks,
   getActiveRoadBlocksGlobal,
 } from '@/lib/road-blocks'
+import { findMonitoredRoadById } from '@/lib/road-blocks-definitions'
 
 type DirectionsRequestOptions = {
   coordinates: [number, number][]
@@ -22,7 +23,35 @@ type RouteGeoJson = {
   }>
 }
 
+type RouteMode =
+  | 'default'
+  | 'avoid_polygons'
+  | 'detour_fallback'
+  | 'detour_refined'
+  | 'default_fallback'
+  | 'osrm_only'
+  | 'osrm_fallback'
+
+type RouteCandidate = {
+  data: RouteGeoJson
+  provider: 'ors' | 'osrm'
+  routeMode: RouteMode
+}
+
+type BlockRouteViolation = {
+  roadId: string
+  roadName: string
+  blockType: 'road' | 'point'
+  distanceMeters: number
+  thresholdMeters: number
+}
+
 const REQUEST_TIMEOUT_MS = 12000
+const EARTH_RADIUS_METERS = 6371000
+const POINT_BLOCK_ROUTE_MIN_RADIUS_METERS = 60
+const POINT_BLOCK_ROUTE_PADDING_METERS = 8
+const ROAD_BLOCK_PROXIMITY_THRESHOLD_METERS = 35
+const MAX_REFINED_DETOUR_ATTEMPTS = 6
 
 function isValidCoord(coord: [number, number]) {
   const [lng, lat] = coord
@@ -83,6 +112,212 @@ function extractLineCoordinates(data: RouteGeoJson) {
   if (!isValid) return null
 
   return coordinates as [number, number][]
+}
+
+function toRad(value: number) {
+  return (value * Math.PI) / 180
+}
+
+function lngLatToMeters(coord: [number, number]) {
+  const [lng, lat] = coord
+  return {
+    x: toRad(lng) * EARTH_RADIUS_METERS * Math.cos(toRad(lat)),
+    y: toRad(lat) * EARTH_RADIUS_METERS,
+  }
+}
+
+function pointToSegmentDistanceMeters(
+  point: [number, number],
+  segStart: [number, number],
+  segEnd: [number, number]
+) {
+  const p = lngLatToMeters(point)
+  const a = lngLatToMeters(segStart)
+  const b = lngLatToMeters(segEnd)
+
+  const abx = b.x - a.x
+  const aby = b.y - a.y
+  const apx = p.x - a.x
+  const apy = p.y - a.y
+  const abLengthSq = abx * abx + aby * aby
+
+  if (abLengthSq === 0) {
+    return Math.hypot(apx, apy)
+  }
+
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / abLengthSq))
+  const closestX = a.x + abx * t
+  const closestY = a.y + aby * t
+  return Math.hypot(p.x - closestX, p.y - closestY)
+}
+
+function minDistanceToPolylineMeters(point: [number, number], polyline: [number, number][]) {
+  if (polyline.length === 0) return Number.POSITIVE_INFINITY
+  if (polyline.length === 1) return pointToSegmentDistanceMeters(point, polyline[0], polyline[0])
+
+  let minDistance = Number.POSITIVE_INFINITY
+
+  for (let index = 0; index < polyline.length - 1; index += 1) {
+    const segmentDistance = pointToSegmentDistanceMeters(
+      point,
+      polyline[index],
+      polyline[index + 1]
+    )
+    if (segmentDistance < minDistance) {
+      minDistance = segmentDistance
+    }
+  }
+
+  return minDistance
+}
+
+function minDistanceBetweenPolylinesMeters(
+  routeLine: [number, number][],
+  blockLine: [number, number][]
+) {
+  if (routeLine.length === 0 || blockLine.length === 0) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  let minDistance = Number.POSITIVE_INFINITY
+
+  for (const routePoint of routeLine) {
+    minDistance = Math.min(minDistance, minDistanceToPolylineMeters(routePoint, blockLine))
+  }
+
+  for (const blockPoint of blockLine) {
+    minDistance = Math.min(minDistance, minDistanceToPolylineMeters(blockPoint, routeLine))
+  }
+
+  return minDistance
+}
+
+function metersToDegreesLat(meters: number) {
+  return (meters / EARTH_RADIUS_METERS) * (180 / Math.PI)
+}
+
+function metersToDegreesLng(meters: number, lat: number) {
+  const metersPerDegreeLng =
+    ((Math.PI / 180) * EARTH_RADIUS_METERS * Math.cos(toRad(lat))) || 1
+  return meters / metersPerDegreeLng
+}
+
+function getPointBlockEffectiveRadius(radiusMeters: number | null) {
+  if (typeof radiusMeters !== 'number' || !Number.isFinite(radiusMeters)) {
+    return POINT_BLOCK_ROUTE_MIN_RADIUS_METERS
+  }
+
+  return Math.max(POINT_BLOCK_ROUTE_MIN_RADIUS_METERS, radiusMeters)
+}
+
+function getRouteBlockViolations(
+  routeCoords: [number, number][],
+  activeBlocks: Awaited<ReturnType<typeof getActiveRoadBlocksGlobal>>
+) {
+  const violations: BlockRouteViolation[] = []
+
+  for (const block of activeBlocks) {
+    if (block.blockType === 'point') {
+      if (
+        typeof block.blockLng !== 'number' ||
+        typeof block.blockLat !== 'number' ||
+        !Number.isFinite(block.blockLng) ||
+        !Number.isFinite(block.blockLat)
+      ) {
+        continue
+      }
+
+      const thresholdMeters =
+        getPointBlockEffectiveRadius(block.blockRadiusMeters) + POINT_BLOCK_ROUTE_PADDING_METERS
+      const distanceMeters = minDistanceToPolylineMeters(
+        [block.blockLng, block.blockLat],
+        routeCoords
+      )
+
+      if (distanceMeters <= thresholdMeters) {
+        violations.push({
+          roadId: block.roadId,
+          roadName: block.roadName,
+          blockType: block.blockType,
+          distanceMeters,
+          thresholdMeters,
+        })
+      }
+      continue
+    }
+
+    if (!block.monitoredRoadId) continue
+    const road = findMonitoredRoadById(block.monitoredRoadId)
+    if (!road) continue
+
+    const blockedSegmentLngLat = road.blockedSegment.map(
+      ([lat, lng]) => [lng, lat] as [number, number]
+    )
+    const distanceMeters = minDistanceBetweenPolylinesMeters(routeCoords, blockedSegmentLngLat)
+
+    if (distanceMeters <= ROAD_BLOCK_PROXIMITY_THRESHOLD_METERS) {
+      violations.push({
+        roadId: block.roadId,
+        roadName: block.roadName,
+        blockType: block.blockType,
+        distanceMeters,
+        thresholdMeters: ROAD_BLOCK_PROXIMITY_THRESHOLD_METERS,
+      })
+    }
+  }
+
+  return violations
+}
+
+function buildRefinedDetourCoordinates(
+  startCoord: [number, number],
+  endCoord: [number, number],
+  activeBlocks: Awaited<ReturnType<typeof getActiveRoadBlocksGlobal>>
+) {
+  const routeCandidates: [number, number][][] = []
+  const pointKeys = new Set<string>()
+
+  for (const block of activeBlocks) {
+    if (
+      block.blockType !== 'point' ||
+      typeof block.blockLng !== 'number' ||
+      typeof block.blockLat !== 'number' ||
+      !Number.isFinite(block.blockLng) ||
+      !Number.isFinite(block.blockLat)
+    ) {
+      continue
+    }
+
+    const radius = getPointBlockEffectiveRadius(block.blockRadiusMeters)
+    const offsetMeters = Math.max(150, radius * 2.4)
+    const deltaLng = metersToDegreesLng(offsetMeters, block.blockLat)
+    const deltaLat = metersToDegreesLat(offsetMeters)
+
+    const waypoints: [number, number][] = [
+      [block.blockLng + deltaLng, block.blockLat],
+      [block.blockLng - deltaLng, block.blockLat],
+      [block.blockLng, block.blockLat + deltaLat],
+      [block.blockLng, block.blockLat - deltaLat],
+    ]
+
+    for (const waypoint of waypoints) {
+      if (!isValidCoord(waypoint)) continue
+      const key = `${waypoint[0].toFixed(6)}:${waypoint[1].toFixed(6)}`
+      if (pointKeys.has(key)) continue
+      pointKeys.add(key)
+      routeCandidates.push([startCoord, waypoint, endCoord])
+    }
+  }
+
+  for (const block of activeBlocks) {
+    if (block.blockType !== 'road' || !block.monitoredRoadId) continue
+    const road = findMonitoredRoadById(block.monitoredRoadId)
+    if (!road) continue
+
+    routeCandidates.push([startCoord, road.detourWaypoint, endCoord])
+  }
+
+  return routeCandidates.slice(0, MAX_REFINED_DETOUR_ATTEMPTS)
 }
 
 async function requestDirectionsOrs(
@@ -205,89 +440,213 @@ export async function POST(req: NextRequest) {
     const detourWaypoints = buildDetourWaypointsFromBlocks(activeBlocks)
     const hasActiveBlocks = activeBlocks.length > 0
 
-    let data: RouteGeoJson | null = null
-    let routeMode:
-      | 'default'
-      | 'avoid_polygons'
-      | 'detour_fallback'
-      | 'default_fallback'
-      | 'osrm_only'
-      | 'osrm_fallback' = 'default'
-    let provider: 'ors' | 'osrm' = 'ors'
-    let blocksApplied = false
+    let selectedCandidate: RouteCandidate | null = null
+    let selectedViolations: BlockRouteViolation[] = []
+    let bestCandidateWithViolations: {
+      candidate: RouteCandidate
+      violations: BlockRouteViolation[]
+    } | null = null
 
-    let orsError: unknown = null
+    const routeProviderErrors: Array<{
+      provider: 'ors' | 'osrm'
+      routeMode: RouteMode
+      error: unknown
+    }> = []
+
+    function evaluateCandidate(candidate: RouteCandidate) {
+      const routeCoords = extractLineCoordinates(candidate.data)
+      if (!routeCoords) {
+        throw new Error('Candidato de rota sem geometria valida')
+      }
+
+      if (!hasActiveBlocks) {
+        selectedCandidate = candidate
+        selectedViolations = []
+        return true
+      }
+
+      const violations = getRouteBlockViolations(routeCoords, activeBlocks)
+      if (violations.length === 0) {
+        selectedCandidate = candidate
+        selectedViolations = []
+        return true
+      }
+
+      if (
+        !bestCandidateWithViolations ||
+        violations.length < bestCandidateWithViolations.violations.length
+      ) {
+        bestCandidateWithViolations = {
+          candidate,
+          violations,
+        }
+      }
+
+      return false
+    }
 
     if (orsApiKey) {
-      try {
-        if (avoidPolygons) {
-          data = await requestDirectionsOrs(orsApiKey, {
+      if (avoidPolygons) {
+        try {
+          const orsAvoidData = await requestDirectionsOrs(orsApiKey, {
             coordinates: [startCoord, endCoord],
             avoidPolygons,
           })
-          routeMode = 'avoid_polygons'
-          blocksApplied = true
-        } else {
-          data = await requestDirectionsOrs(orsApiKey, {
+          evaluateCandidate({
+            data: orsAvoidData,
+            provider: 'ors',
+            routeMode: 'avoid_polygons',
+          })
+        } catch (error) {
+          routeProviderErrors.push({
+            provider: 'ors',
+            routeMode: 'avoid_polygons',
+            error,
+          })
+        }
+      }
+
+      if (!selectedCandidate && detourWaypoints.length > 0) {
+        try {
+          const orsDetourData = await requestDirectionsOrs(orsApiKey, {
+            coordinates: [startCoord, ...detourWaypoints, endCoord],
+            avoidPolygons: avoidPolygons ?? undefined,
+          })
+          evaluateCandidate({
+            data: orsDetourData,
+            provider: 'ors',
+            routeMode: 'detour_fallback',
+          })
+        } catch (error) {
+          routeProviderErrors.push({
+            provider: 'ors',
+            routeMode: 'detour_fallback',
+            error,
+          })
+        }
+      }
+
+      if (!selectedCandidate && hasActiveBlocks) {
+        const refinedCandidates = buildRefinedDetourCoordinates(
+          startCoord,
+          endCoord,
+          activeBlocks
+        )
+
+        for (const candidateCoordinates of refinedCandidates) {
+          try {
+            const orsRefinedData = await requestDirectionsOrs(orsApiKey, {
+              coordinates: candidateCoordinates,
+              avoidPolygons: avoidPolygons ?? undefined,
+            })
+            const accepted = evaluateCandidate({
+              data: orsRefinedData,
+              provider: 'ors',
+              routeMode: 'detour_refined',
+            })
+            if (accepted) break
+          } catch (error) {
+            routeProviderErrors.push({
+              provider: 'ors',
+              routeMode: 'detour_refined',
+              error,
+            })
+          }
+        }
+      }
+
+      if (!selectedCandidate) {
+        try {
+          const orsDefaultData = await requestDirectionsOrs(orsApiKey, {
             coordinates: [startCoord, endCoord],
           })
-          routeMode = 'default'
-          blocksApplied = false
-        }
-      } catch (firstError) {
-        try {
-          if (detourWaypoints.length > 0) {
-            data = await requestDirectionsOrs(orsApiKey, {
-              coordinates: [startCoord, ...detourWaypoints, endCoord],
-            })
-            routeMode = 'detour_fallback'
-            blocksApplied = true
-          }
-        } catch (detourError) {
-          orsError = { firstError, detourError }
-        }
-
-        if (!data) {
-          try {
-            data = await requestDirectionsOrs(orsApiKey, {
-              coordinates: [startCoord, endCoord],
-            })
-            routeMode = 'default_fallback'
-            blocksApplied = false
-          } catch (defaultError) {
-            orsError = { firstError, defaultError }
-          }
+          evaluateCandidate({
+            data: orsDefaultData,
+            provider: 'ors',
+            routeMode: 'default_fallback',
+          })
+        } catch (error) {
+          routeProviderErrors.push({
+            provider: 'ors',
+            routeMode: 'default_fallback',
+            error,
+          })
         }
       }
     } else {
-      orsError = 'ORS_API_KEY ausente'
+      routeProviderErrors.push({
+        provider: 'ors',
+        routeMode: 'default',
+        error: 'ORS_API_KEY ausente',
+      })
     }
 
-    if (!data) {
+    if (!selectedCandidate) {
       try {
-        data = await requestDirectionsOsrm({
+        const osrmData = await requestDirectionsOsrm({
           coordinates: [startCoord, endCoord],
         })
-        provider = 'osrm'
-        routeMode = hasActiveBlocks ? 'osrm_fallback' : orsApiKey ? 'default_fallback' : 'osrm_only'
-        blocksApplied = false
-      } catch (osrmError) {
-        console.error('Erro rota ORS+OSRM:', {
-          orsError,
-          osrmError,
+        evaluateCandidate({
+          data: osrmData,
+          provider: 'osrm',
+          routeMode: hasActiveBlocks ? 'osrm_fallback' : 'osrm_only',
         })
-        return NextResponse.json(
-          { error: 'Erro ao buscar rota nos provedores disponiveis' },
-          { status: 502 }
-        )
+      } catch (error) {
+        routeProviderErrors.push({
+          provider: 'osrm',
+          routeMode: hasActiveBlocks ? 'osrm_fallback' : 'osrm_only',
+          error,
+        })
       }
     }
 
+    const fallbackCandidateWithViolations = bestCandidateWithViolations as
+      | { candidate: RouteCandidate; violations: BlockRouteViolation[] }
+      | null
+    if (!selectedCandidate && hasActiveBlocks && fallbackCandidateWithViolations) {
+      selectedCandidate = fallbackCandidateWithViolations.candidate
+      selectedViolations = fallbackCandidateWithViolations.violations
+    }
+
+    if (!selectedCandidate) {
+      console.error('Erro rota ORS+OSRM:', routeProviderErrors)
+      return NextResponse.json(
+        { error: 'Erro ao buscar rota nos provedores disponiveis' },
+        { status: 502 }
+      )
+    }
+
+    const finalCandidate: RouteCandidate = selectedCandidate
+    const finalViolations = selectedViolations
+    const blocksApplied = hasActiveBlocks ? finalViolations.length === 0 : false
+
+    if (hasActiveBlocks && !blocksApplied) {
+      console.warn('[route-api] rota_degradada_com_bloqueios', {
+        routeMode: finalCandidate.routeMode,
+        provider: finalCandidate.provider,
+        violations: finalViolations.map((item) => ({
+          roadId: item.roadId,
+          roadName: item.roadName,
+          blockType: item.blockType,
+          distanceMeters: Math.round(item.distanceMeters),
+          thresholdMeters: Math.round(item.thresholdMeters),
+        })),
+      })
+    }
+
     const metadata = {
-      provider,
-      routeMode,
-      blocksApplied: hasActiveBlocks ? blocksApplied : false,
+      provider: finalCandidate.provider,
+      routeMode: finalCandidate.routeMode,
+      blocksApplied,
       degradedForActiveBlocks: hasActiveBlocks && !blocksApplied,
+      blockViolationCount: finalViolations.length,
+      violatedBlocks: finalViolations.map((item) => ({
+        roadId: item.roadId,
+        roadName: item.roadName,
+        blockType: item.blockType,
+        distanceMeters: Math.round(item.distanceMeters),
+        thresholdMeters: Math.round(item.thresholdMeters),
+      })),
       activeRoadBlocks: activeBlocks.map((block) => ({
         roadId: block.roadId,
         roadName: block.roadName,
@@ -296,7 +655,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      ...data,
+      ...finalCandidate.data,
       metadata,
     })
   } catch (error) {
