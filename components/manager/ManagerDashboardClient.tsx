@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { DashboardUser, OperationalSnapshot } from '@/lib/manager-dashboard-types'
+import {
+  managerUserStatusClass,
+  managerUserStatusLabel,
+} from '@/lib/manager-status'
 
 const ManagerOperationalMap = dynamic(
   () => import('@/components/manager/ManagerOperationalMap'),
@@ -23,18 +27,6 @@ type FocusTarget = {
   lat: number
   lng: number
   zoom?: number
-}
-
-function statusClass(status: DashboardUser['status']) {
-  if (status === 'active') return 'bg-emerald-500'
-  if (status === 'stale') return 'bg-amber-500'
-  return 'bg-slate-400'
-}
-
-function statusLabel(status: DashboardUser['status']) {
-  if (status === 'active') return 'Ativo'
-  if (status === 'stale') return 'Sem atualizacao recente'
-  return 'Compartilhamento desativado'
 }
 
 function formatTime(value: string | null) {
@@ -265,9 +257,9 @@ export default function ManagerDashboardClient({
                         {user.phone ? user.phone : 'Telefone nao informado'}
                       </p>
                     </div>
-                    <span className={`mt-1 h-2.5 w-2.5 rounded-full ${statusClass(user.status)}`} />
+                    <span className={`mt-1 h-2.5 w-2.5 rounded-full ${managerUserStatusClass(user.status)}`} />
                   </div>
-                  <p className='mt-1 text-xs text-slate-700'>{statusLabel(user.status)}</p>
+                  <p className='mt-1 text-xs text-slate-700'>{managerUserStatusLabel(user.status)}</p>
                   <p className='mt-0.5 text-[11px] text-slate-500'>
                     Atualizado: {formatTime(user.lastSeenAt)}
                   </p>

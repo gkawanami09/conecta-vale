@@ -1,3 +1,9 @@
+import {
+  hasFuzzyTokenCoverage,
+  normalizeSearchText,
+  splitMatchTokens,
+} from '@/lib/text-match'
+
 export type MonitoredRoad = {
   id: 'rua-tiradentes' | 'rua-jose-cordeiro' | 'rua-duque-de-caxias'
   name: string
@@ -94,13 +100,10 @@ export const ROAD_BLOCK_INTENT_PATTERNS: Array<{
 ]
 
 export function normalizeRoadText(value: string) {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s.-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return normalizeSearchText(value, {
+    allowDots: true,
+    allowHyphen: true,
+  })
 }
 
 export function findMonitoredRoadById(roadId: string) {
@@ -112,56 +115,15 @@ export function getRoadDefinitionsByIds(roadIds: string[]) {
   return MONITORED_ROADS.filter((road) => idSet.has(road.id))
 }
 
-function levenshteinDistance(a: string, b: string) {
-  if (a === b) return 0
-
-  const rows = a.length + 1
-  const cols = b.length + 1
-  const dp: number[][] = Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => 0)
-  )
-
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j
-
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
-      )
-    }
-  }
-
-  return dp[rows - 1][cols - 1]
-}
-
-function splitTokens(value: string) {
-  return value
-    .split(' ')
-    .map((token) => token.replace(/\./g, ''))
-    .filter((token) => token.length >= 2)
-}
-
-function isCloseToken(aliasToken: string, messageToken: string) {
-  if (aliasToken === messageToken) return true
-  if (Math.abs(aliasToken.length - messageToken.length) > 1) return false
-
-  const maxDistance = aliasToken.length >= 8 ? 2 : 1
-  return levenshteinDistance(aliasToken, messageToken) <= maxDistance
-}
-
 function containsAliasFuzzy(normalizedMessage: string, normalizedAlias: string) {
-  const textTokens = splitTokens(normalizedMessage)
-  const aliasTokens = splitTokens(normalizedAlias)
+  const textTokens = splitMatchTokens(normalizedMessage, {
+    stripDots: true,
+  })
+  const aliasTokens = splitMatchTokens(normalizedAlias, {
+    stripDots: true,
+  })
 
-  if (aliasTokens.length === 0) return false
-
-  return aliasTokens.every((aliasToken) =>
-    textTokens.some((messageToken) => isCloseToken(aliasToken, messageToken))
-  )
+  return hasFuzzyTokenCoverage(textTokens, aliasTokens)
 }
 
 export function findMonitoredRoadByAlias(text: string) {

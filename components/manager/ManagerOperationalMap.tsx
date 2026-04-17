@@ -10,6 +10,7 @@ import {
   useMap,
 } from 'react-leaflet'
 import type { DashboardUser } from '@/lib/manager-dashboard-types'
+import { managerUserStatusLabel } from '@/lib/manager-status'
 import type { OperationalFixedPoint } from '@/lib/operational-fixed-points'
 
 type FocusTarget = {
@@ -39,12 +40,6 @@ function formatRelativeTime(value: string | null) {
   if (seconds < 60) return `${seconds}s atras`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}min atras`
   return `${Math.floor(seconds / 3600)}h atras`
-}
-
-function statusLabel(status: DashboardUser['status']) {
-  if (status === 'active') return 'Ativo'
-  if (status === 'stale') return 'Sem atualizacao recente'
-  return 'Compartilhamento desativado'
 }
 
 function FitAndFocusController({
@@ -220,9 +215,13 @@ export default function ManagerOperationalMap({
                   <div className='space-y-1'>
                     <p className='text-sm font-semibold text-slate-900'>{user.name}</p>
                     <p className='text-xs text-slate-700'>
-                      {user.phone ? `Telefone: ${user.phone}` : 'Telefone nao informado'}
+                      {user.phone
+                        ? `Telefone: ${user.phone}`
+                        : 'Telefone nao informado'}
                     </p>
-                    <p className='text-xs text-slate-700'>Status: {statusLabel(user.status)}</p>
+                    <p className='text-xs text-slate-700'>
+                      Status: {managerUserStatusLabel(user.status)}
+                    </p>
                     <p className='text-xs text-slate-700'>
                       Ultima atualizacao: {formatRelativeTime(user.lastSeenAt)}
                     </p>
