@@ -1,4 +1,8 @@
-import { DESTINATIONS, findDestinationByText } from '@/lib/destinations'
+import {
+  DESTINATIONS,
+  findDestinationByTextInCatalog,
+  type Destination,
+} from '@/lib/destinations'
 import { detectRoadBlockMessage } from '@/lib/road-blocks'
 import {
   MONITORED_ROADS,
@@ -32,6 +36,7 @@ export type MarcoInput = {
   audioBase64?: string | null
   imageUrl?: string | null
   mediaMimeType?: string | null
+  knownDestinations?: Destination[] | null
 }
 
 export type MarcoInterpretation = {
@@ -483,9 +488,13 @@ function fallbackInterpretation(input: {
   transcriptionStatus: MarcoInterpretation['transcriptionStatus']
   imageAssessment: string | null
   messageType: string | null
+  knownDestinations: Destination[]
 }): MarcoInterpretation {
   const roadDetection = detectRoadBlockMessage(input.combinedText)
-  const destination = findDestinationByText(input.combinedText)
+  const destination = findDestinationByTextInCatalog(
+    input.knownDestinations,
+    input.combinedText
+  )
   const asksList = isListBlocksKeyword(input.combinedText)
   const asksClear = isClearBlocksKeyword(input.combinedText)
   const forwardTarget = extractForwardTarget(input.combinedText)
@@ -546,6 +555,7 @@ async function openaiInterpret(input: {
   messageType: string | null
   transcription: string | null
   imageAssessment: string | null
+  knownDestinations: Destination[]
 }) {
   if (!OPENAI_API_KEY) return null
 
@@ -555,7 +565,7 @@ async function openaiInterpret(input: {
     aliases: road.aliases,
   }))
 
-  const destinationsContext = DESTINATIONS.map((destination) => ({
+  const destinationsContext = input.knownDestinations.map((destination) => ({
     key: destination.key,
     name: destination.name,
     aliases: destination.aliases ?? [],
@@ -660,6 +670,10 @@ Dados da mensagem:
 export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInterpretation> {
   const rawText = input.text?.trim() || null
   const caption = input.caption?.trim() || null
+  const knownDestinations =
+    input.knownDestinations && input.knownDestinations.length > 0
+      ? input.knownDestinations
+      : DESTINATIONS
 
   let transcription: string | null = null
   let transcriptionStatus: MarcoInterpretation['transcriptionStatus'] = 'not_applicable'
@@ -724,6 +738,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       transcriptionStatus,
       imageAssessment,
       messageType: input.messageType ?? null,
+      knownDestinations,
     })
   }
 
@@ -733,6 +748,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       messageType: input.messageType ?? null,
       transcription,
       imageAssessment,
+      knownDestinations,
     })
 
     if (!ai) {
@@ -742,6 +758,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
         transcriptionStatus,
         imageAssessment,
         messageType: input.messageType ?? null,
+        knownDestinations,
       })
     }
 
@@ -750,8 +767,14 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     const roadFromText = findMonitoredRoadByAlias(combinedText)
     const resolvedRoad = roadById ?? roadByText ?? roadFromText ?? null
 
-    const destinationFromAi = findDestinationByText(ai.destination_text ?? null)
-    const destinationFromText = findDestinationByText(combinedText)
+    const destinationFromAi = findDestinationByTextInCatalog(
+      knownDestinations,
+      ai.destination_text ?? null
+    )
+    const destinationFromText = findDestinationByTextInCatalog(
+      knownDestinations,
+      combinedText
+    )
 
     const hasExplicitForwardSignal = isExternalForwardKeyword(combinedText)
     const safeIntent: MarcoIntent = hasExplicitForwardSignal
@@ -812,6 +835,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       transcriptionStatus,
       imageAssessment,
       messageType: input.messageType ?? null,
+      knownDestinations,
     })
   }
 }

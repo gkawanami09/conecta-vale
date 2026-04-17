@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveDestinationFromTexts } from '@/lib/destinations'
+import { resolveDestinationFromTextsInCatalog } from '@/lib/destinations'
 import {
   activateRoadBlockGlobal,
   clearAllRoadBlocksGlobal,
@@ -7,6 +7,7 @@ import {
 } from '@/lib/road-blocks'
 import { buildRouteLink } from '@/lib/route-link'
 import { interpretMarcoMessage } from '@/lib/marco'
+import { listOperationalDestinations } from '@/lib/operational-destinations'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendWhatsAppText } from '@/lib/whatsapp'
 
@@ -330,6 +331,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
+    const knownDestinations = await listOperationalDestinations()
+
     const interpretation = await interpretMarcoMessage({
       text: incoming.rawText,
       caption: incoming.caption,
@@ -342,6 +345,7 @@ export async function POST(req: NextRequest) {
       audioBase64: incoming.audioBase64,
       imageUrl: incoming.imageUrl,
       mediaMimeType: incoming.mimeType,
+      knownDestinations,
     })
 
     console.log(`${LOG_PREFIX} interpreted`, {
@@ -451,15 +455,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const userDrivenDestinationResolution = resolveDestinationFromTexts([
-      incoming.rawText,
-      incoming.caption,
-      interpretation.transcription,
-    ])
-    const aiDrivenDestinationResolution = resolveDestinationFromTexts([
-      interpretation.destinationText,
-      interpretation.normalizedText,
-    ])
+    const userDrivenDestinationResolution = resolveDestinationFromTextsInCatalog(
+      knownDestinations,
+      [incoming.rawText, incoming.caption, interpretation.transcription]
+    )
+    const aiDrivenDestinationResolution = resolveDestinationFromTextsInCatalog(
+      knownDestinations,
+      [interpretation.destinationText, interpretation.normalizedText]
+    )
 
     // Regra de seguranca: prioriza o que o usuario realmente escreveu/falou.
     // So usa o destino da IA quando o usuario nao deu pista suficiente.

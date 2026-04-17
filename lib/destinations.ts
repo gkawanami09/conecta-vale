@@ -23,6 +23,8 @@ export type DestinationResolution = {
   candidates: DestinationCandidate[]
 }
 
+type DestinationCatalog = Destination[]
+
 export const DESTINATIONS: Destination[] = [
   {
     key: 'terminal-a',
@@ -76,12 +78,19 @@ function termMatchScore(normalizedText: string, normalizedTerm: string) {
 }
 
 export function findDestinationByText(text: string | null | undefined) {
+  return findDestinationByTextInCatalog(DESTINATIONS, text)
+}
+
+export function findDestinationByTextInCatalog(
+  catalog: DestinationCatalog,
+  text: string | null | undefined
+) {
   if (!text) return null
 
   const normalized = normalizeText(text)
   if (!normalized) return null
 
-  for (const destination of DESTINATIONS) {
+  for (const destination of catalog) {
     const searchTerms = [
       destination.name,
       destination.key.replace(/-/g, ' '),
@@ -105,12 +114,19 @@ export function findDestinationByText(text: string | null | undefined) {
 }
 
 export function findDestinationCandidatesByText(text: string) {
+  return findDestinationCandidatesByTextInCatalog(DESTINATIONS, text)
+}
+
+export function findDestinationCandidatesByTextInCatalog(
+  catalog: DestinationCatalog,
+  text: string
+) {
   const normalized = normalizeText(text)
   if (!normalized) return [] as DestinationCandidate[]
 
   const candidates: DestinationCandidate[] = []
 
-  for (const destination of DESTINATIONS) {
+  for (const destination of catalog) {
     const searchTerms = [
       destination.name,
       destination.key.replace(/-/g, ' '),
@@ -133,11 +149,21 @@ export function findDestinationCandidatesByText(text: string) {
 }
 
 export function resolveDestinationFromTexts(texts: Array<string | null | undefined>) {
+  return resolveDestinationFromTextsInCatalog(DESTINATIONS, texts)
+}
+
+export function resolveDestinationFromTextsInCatalog(
+  catalog: DestinationCatalog,
+  texts: Array<string | null | undefined>
+) {
   const mergedByKey = new Map<string, DestinationCandidate>()
 
   for (const text of texts) {
     if (!text) continue
-    for (const candidate of findDestinationCandidatesByText(text)) {
+    for (const candidate of findDestinationCandidatesByTextInCatalog(
+      catalog,
+      text
+    )) {
       const previous = mergedByKey.get(candidate.destination.key)
       if (!previous || candidate.score > previous.score) {
         mergedByKey.set(candidate.destination.key, candidate)
