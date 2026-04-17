@@ -17,12 +17,23 @@ type RouteDeviationState = {
 type ActiveBlock = {
   roadId: string
   roadName: string
+  blockType: 'road' | 'point'
+  monitoredRoadId: string | null
+  blockLng: number | null
+  blockLat: number | null
+  blockRadiusMeters: number | null
   blockedAt: string | null
   updatedAt: string | null
   sourcePhone: string | null
   sourceType: string | null
   sourceKeyword: string | null
   sourceMessage: string | null
+}
+
+type RouteMetadata = {
+  provider?: string
+  routeMode?: string
+  blocksApplied?: boolean
 }
 
 function statusLabel(status: LocationStatus) {
@@ -93,6 +104,7 @@ export default function RotaClient() {
     distanceMeters: null,
   })
   const [activeBlocks, setActiveBlocks] = useState<ActiveBlock[]>([])
+  const [routeMetadata, setRouteMetadata] = useState<RouteMetadata | null>(null)
   const [shareId, setShareId] = useState<string | null>(null)
 
   const lastSharePushAtRef = useRef(0)
@@ -156,12 +168,36 @@ export default function RotaClient() {
     [shareId, passengerName, passengerPhone]
   )
 
-  const blockedRoadIds = useMemo(
-    () => activeBlocks.map((block) => block.roadId),
-    [activeBlocks]
-  )
-  const blockedHash = blockedRoadIds.sort().join('|')
+  const blockedHash = useMemo(() => {
+    return [...activeBlocks]
+      .map(
+        (block) =>
+          `${block.roadId}:${block.blockType}:${block.updatedAt ?? ''}:${
+            block.blockLat ?? ''
+          }:${block.blockLng ?? ''}:${block.blockRadiusMeters ?? ''}`
+      )
+      .sort()
+      .join('|')
+  }, [activeBlocks])
+
   const routeKey = `${destination.end[0]}:${destination.end[1]}:${blockedHash}`
+
+  const activeBlockMessage = useMemo(() => {
+    if (activeBlocks.length === 0) return null
+
+    const names = activeBlocks
+      .map((block) => block.roadName)
+      .filter(Boolean)
+      .slice(0, 3)
+
+    const suffix = activeBlocks.length > 3 ? ' e outros trechos' : ''
+    const modeLabel =
+      routeMetadata?.routeMode === 'detour_fallback'
+        ? 'desvio operacional'
+        : 'bloqueios ativos'
+
+    return `Rota ajustada por ${modeLabel}. Evite: ${names.join(', ')}${suffix}.`
+  }, [activeBlocks, routeMetadata?.routeMode])
 
   const loadBlocks = useCallback(async () => {
     try {
@@ -221,7 +257,7 @@ export default function RotaClient() {
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       void loadBlocks()
-    }, 15000)
+    }, 5000)
 
     void loadBlocks()
 
@@ -296,12 +332,14 @@ export default function RotaClient() {
         autoFollow={isAutoFollow}
         heading={heading}
         routeRefreshKey={blockedHash}
+        activeBlocks={activeBlocks}
         onMapInteraction={() => setIsAutoFollow(false)}
         onRouteDeviationChange={setDeviation}
+        onRouteMetadataChange={setRouteMetadata}
       />
 
       <div className='pointer-events-none absolute inset-0 z-[1100]'>
-        <div className='pointer-events-auto absolute left-3 top-3 max-w-[82vw] rounded-2xl border border-white/70 bg-white/90 px-3.5 py-3 shadow-lg backdrop-blur sm:max-w-sm sm:px-4'>
+        <div className='pointer-events-auto absolute left-3 top-3 max-w-[84vw] rounded-2xl border border-white/70 bg-white/90 px-3.5 py-3 shadow-lg backdrop-blur sm:max-w-sm sm:px-4'>
           <div className='flex items-center gap-2'>
             <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(status)}`} />
             <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-[#384880]'>
@@ -314,6 +352,11 @@ export default function RotaClient() {
           {destination.usedFallback && (
             <p className='mt-1.5 text-xs font-medium text-[#3A5AB8]'>
               Destino da URL invalido. Usando destino padrao.
+            </p>
+          )}
+          {activeBlockMessage && (
+            <p className='mt-1.5 text-xs font-semibold text-rose-700'>
+              {activeBlockMessage}
             </p>
           )}
           {typeof accuracy === 'number' && status === 'active' && (

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import {
+  Circle,
   MapContainer,
   Marker,
   Polyline,
@@ -12,6 +13,24 @@ import {
   useMapEvents,
 } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
+import { findMonitoredRoadById } from '@/lib/road-blocks-definitions'
+
+type ActiveRouteBlock = {
+  roadId: string
+  roadName: string
+  blockType: 'road' | 'point'
+  monitoredRoadId: string | null
+  blockLng: number | null
+  blockLat: number | null
+  blockRadiusMeters: number | null
+  updatedAt: string | null
+}
+
+type RouteMetadata = {
+  provider?: string
+  routeMode?: string
+  blocksApplied?: boolean
+}
 
 type RouteMapProps = {
   currentPosition: [number, number] | null // [lng, lat]
@@ -20,11 +39,13 @@ type RouteMapProps = {
   autoFollow: boolean
   heading: number | null
   routeRefreshKey: string
+  activeBlocks: ActiveRouteBlock[]
   onMapInteraction: () => void
   onRouteDeviationChange: (value: {
     isOffRoute: boolean
     distanceMeters: number | null
   }) => void
+  onRouteMetadataChange?: (metadata: RouteMetadata | null) => void
 }
 
 type MapViewportControllerProps = {
@@ -42,10 +63,7 @@ type RouteApiResponse = {
       coordinates?: [number, number][]
     }
   }>
-  metadata?: {
-    provider?: string
-    routeMode?: string
-  }
+  metadata?: RouteMetadata
 }
 
 const EARTH_RADIUS_METERS = 6371000
@@ -209,6 +227,10 @@ function normalizeErrorMessage(value: unknown) {
   return 'Nao foi possivel carregar a rota.'
 }
 
+function isValidCoord(value: number | null | undefined, max: number) {
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= max
+}
+
 export default function RouteMap({
   currentPosition,
   end,
@@ -216,8 +238,10 @@ export default function RouteMap({
   autoFollow,
   heading,
   routeRefreshKey,
+  activeBlocks,
   onMapInteraction,
   onRouteDeviationChange,
+  onRouteMetadataChange,
 }: RouteMapProps) {
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([])
   const [loading, setLoading] = useState(false)
@@ -246,11 +270,29 @@ export default function RouteMap({
   const routeStart = useMemo<[number, number] | null>(() => {
     if (!currentPosition) return null
 
-    // Reduces noisy GPS jitter and avoids excessive route recalculation.
     const lng = Number(currentPosition[0].toFixed(4))
     const lat = Number(currentPosition[1].toFixed(4))
     return [lng, lat]
   }, [currentPosition])
+
+  const roadBlocks = useMemo(
+    () =>
+      activeBlocks.filter(
+        (block) => block.blockType === 'road' && block.monitoredRoadId
+      ),
+    [activeBlocks]
+  )
+
+  const pointBlocks = useMemo(
+    () =>
+      activeBlocks.filter(
+        (block) =>
+          block.blockType === 'point' &&
+          isValidCoord(block.blockLat, 90) &&
+          isValidCoord(block.blockLng, 180)
+      ),
+    [activeBlocks]
+  )
 
   const userIcon = useMemo(
     () =>
@@ -274,6 +316,17 @@ export default function RouteMap({
         html: '<span class="conecta-destination-marker-core"></span>',
         iconSize: [24, 24],
         iconAnchor: [12, 12],
+      }),
+    []
+  )
+
+  const blockPointIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'conecta-route-block-wrap',
+        html: '<span class="conecta-route-block-core"></span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
       }),
     []
   )
@@ -327,9 +380,11 @@ export default function RouteMap({
         setRouteCoords(leafletCoords)
         setError(null)
         setRetryCount(0)
+        onRouteMetadataChange?.(data?.metadata ?? null)
       } catch (fetchError) {
         console.error('[route-map] fetch_route_error', fetchError)
         setError(normalizeErrorMessage(fetchError))
+        onRouteMetadataChange?.(null)
       } finally {
         routeFetchInFlightRef.current = false
         setLoading(false)
@@ -337,7 +392,7 @@ export default function RouteMap({
     }
 
     void fetchRoute()
-  }, [routeStart, end, routeRefreshKey, retryNonce])
+  }, [routeStart, end, routeRefreshKey, retryNonce, onRouteMetadataChange])
 
   useEffect(() => {
     if (!error || !routeStart) return
@@ -394,6 +449,61 @@ export default function RouteMap({
           autoFollow={autoFollow}
         />
 
+        {roadBlocks.map((block) => {
+          const road = block.monitoredRoadId
+            ? findMonitoredRoadById(block.monitoredRoadId)
+            : null
+          if (!road) return null
+
+          return (
+            <Polyline
+              key={block.roadId}
+              positions={road.blockedSegment}
+              pathOptions={{
+                color: '#ef4444',
+                weight: 5,
+                opacity: 0.9,
+                dashArray: '10 7',
+              }}
+            >
+              <Popup>
+                <p className='text-xs font-semibold text-slate-900'>
+                  Bloqueio ativo: {block.roadName}
+                </p>
+              </Popup>
+            </Polyline>
+          )
+        })}
+
+        {pointBlocks.map((block) => (
+          <Circle
+            key={`${block.roadId}-radius`}
+            center={[block.blockLat as number, block.blockLng as number]}
+            radius={Math.max(30, block.blockRadiusMeters ?? 90)}
+            pathOptions={{
+              color: '#ef4444',
+              weight: 2,
+              opacity: 0.85,
+              fillColor: '#ef4444',
+              fillOpacity: 0.15,
+            }}
+          />
+        ))}
+
+        {pointBlocks.map((block) => (
+          <Marker
+            key={block.roadId}
+            position={[block.blockLat as number, block.blockLng as number]}
+            icon={blockPointIcon}
+          >
+            <Popup>
+              <p className='text-xs font-semibold text-slate-900'>
+                Bloqueio ativo: {block.roadName}
+              </p>
+            </Popup>
+          </Marker>
+        ))}
+
         <Marker position={endLatLng} icon={destinationIcon}>
           <Popup>Destino</Popup>
         </Marker>
@@ -425,14 +535,15 @@ export default function RouteMap({
       )}
 
       {error && (
-        <div className='pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2 text-xs font-medium text-rose-700 shadow-sm sm:left-1/2 sm:right-auto sm:w-[480px] sm:-translate-x-1/2 sm:text-sm'>
+        <div className='pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2 text-xs font-medium text-rose-700 shadow-sm sm:left-1/2 sm:right-auto sm:w-[520px] sm:-translate-x-1/2 sm:text-sm'>
           {error}
         </div>
       )}
 
       <style jsx global>{`
         .conecta-user-marker-wrap,
-        .conecta-destination-marker-wrap {
+        .conecta-destination-marker-wrap,
+        .conecta-route-block-wrap {
           background: transparent;
           border: 0;
         }
@@ -483,6 +594,35 @@ export default function RouteMap({
           border: 2px solid #ffffff;
           transform: translate(-50%, -50%);
           box-shadow: 0 0 0 4px rgba(112, 200, 248, 0.48);
+        }
+
+        .conecta-route-block-core {
+          position: absolute;
+          inset: 0;
+          border-radius: 999px;
+          border: 2px solid #fff;
+          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.34);
+          background: #ef4444;
+        }
+
+        .conecta-route-block-core::before,
+        .conecta-route-block-core::after {
+          content: '';
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 12px;
+          height: 2px;
+          background: #fff;
+          transform-origin: center;
+        }
+
+        .conecta-route-block-core::before {
+          transform: translate(-50%, -50%) rotate(45deg);
+        }
+
+        .conecta-route-block-core::after {
+          transform: translate(-50%, -50%) rotate(-45deg);
         }
 
         @keyframes conectaPulse {

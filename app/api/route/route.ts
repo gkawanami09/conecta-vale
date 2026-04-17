@@ -203,6 +203,7 @@ export async function POST(req: NextRequest) {
     const activeBlocks = await getActiveRoadBlocksGlobal()
     const avoidPolygons = buildAvoidPolygonsFromBlocks(activeBlocks)
     const detourWaypoints = buildDetourWaypointsFromBlocks(activeBlocks)
+    const hasActiveBlocks = activeBlocks.length > 0
 
     let data: RouteGeoJson | null = null
     let routeMode:
@@ -257,6 +258,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (!data) {
+      if (hasActiveBlocks) {
+        console.error('Rota bloqueada: sem alternativa segura com bloqueios ativos', {
+          orsError,
+          activeBlocks: activeBlocks.map((block) => ({
+            roadId: block.roadId,
+            roadName: block.roadName,
+            blockType: block.blockType,
+          })),
+        })
+        return NextResponse.json(
+          {
+            error:
+              'Nao foi possivel calcular rota alternativa com os bloqueios ativos. Aguarde nova atualizacao do gestor.',
+          },
+          { status: 409 }
+        )
+      }
+
       try {
         data = await requestDirectionsOsrm({
           coordinates: [startCoord, endCoord],
@@ -278,6 +297,7 @@ export async function POST(req: NextRequest) {
     const metadata = {
       provider,
       routeMode,
+      blocksApplied: hasActiveBlocks,
       activeRoadBlocks: activeBlocks.map((block) => ({
         roadId: block.roadId,
         roadName: block.roadName,

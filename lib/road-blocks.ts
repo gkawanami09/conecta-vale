@@ -234,6 +234,53 @@ function buildPointBlockAvoidPolygons(pointBlocks: ActiveRoadBlock[]) {
     )
 }
 
+function metersToDegreesLat(meters: number) {
+  return (meters / EARTH_RADIUS_METERS) * (180 / Math.PI)
+}
+
+function metersToDegreesLng(meters: number, lat: number) {
+  const latRad = (lat * Math.PI) / 180
+  const metersPerDegreeLng =
+    ((Math.PI / 180) * EARTH_RADIUS_METERS * Math.cos(latRad)) || 1
+  return meters / metersPerDegreeLng
+}
+
+function buildPointBlockDetourWaypoints(pointBlocks: ActiveRoadBlock[]) {
+  const waypoints: [number, number][] = []
+  const keys = new Set<string>()
+
+  for (const block of pointBlocks) {
+    if (
+      block.blockType !== 'point' ||
+      !isValidCoordinate(block.blockLng, block.blockLat)
+    ) {
+      continue
+    }
+
+    const lng = block.blockLng as number
+    const lat = block.blockLat as number
+    const radius = clampPointBlockRadius(block.blockRadiusMeters)
+    const offsetMeters = Math.max(140, radius * 2.2)
+    const deltaLat = metersToDegreesLat(offsetMeters)
+    const deltaLng = metersToDegreesLng(offsetMeters, lat)
+
+    const candidates: [number, number][] = [
+      [lng + deltaLng, lat + deltaLat],
+      [lng - deltaLng, lat - deltaLat],
+    ]
+
+    for (const candidate of candidates) {
+      if (!isValidCoordinate(candidate[0], candidate[1])) continue
+      const key = `${candidate[0].toFixed(6)}:${candidate[1].toFixed(6)}`
+      if (keys.has(key)) continue
+      keys.add(key)
+      waypoints.push(candidate)
+    }
+  }
+
+  return waypoints
+}
+
 function roadIdsFromActiveBlocks(activeBlocks: ActiveRoadBlock[]) {
   return activeBlocks
     .filter((block) => block.blockType === 'road' && block.monitoredRoadId)
@@ -449,5 +496,7 @@ export function buildDetourWaypoints(activeRoads: MonitoredRoad[]) {
 
 export function buildDetourWaypointsFromBlocks(activeBlocks: ActiveRoadBlock[]) {
   const activeRoads = getRoadDefinitionsByIds(roadIdsFromActiveBlocks(activeBlocks))
-  return buildDetourWaypoints(activeRoads)
+  const roadWaypoints = buildDetourWaypoints(activeRoads)
+  const pointWaypoints = buildPointBlockDetourWaypoints(activeBlocks)
+  return [...roadWaypoints, ...pointWaypoints]
 }
