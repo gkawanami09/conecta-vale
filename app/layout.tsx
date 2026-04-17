@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Conecta Vale",
   description: "Plataforma operacional de rotas e monitoramento em tempo real",
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    shortcut: '/icon.svg',
+    apple: '/logo-vale.png',
+  },
 };
 
 export default function RootLayout({
