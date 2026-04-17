@@ -402,16 +402,16 @@ export default function ManagerDashboardClient({
             </button>
           </div>
 
-          <div className='absolute bottom-3 left-3 z-[1000] flex max-w-[95%] flex-wrap gap-2'>
+          <div className='absolute left-3 top-[52px] z-[1000] flex max-w-[95%] flex-wrap gap-2'>
             <button
               onClick={startAddBlock}
-              className='rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 shadow'
+              className='rounded-lg border border-rose-200 bg-rose-50/95 px-3 py-1.5 text-xs font-semibold text-rose-800 shadow'
             >
               Adicionar bloqueio
             </button>
             <button
               onClick={startAddFixedPoint}
-              className='rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow'
+              className='rounded-lg border border-emerald-200 bg-emerald-50/95 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow'
             >
               Adicionar ponto fixo
             </button>
@@ -434,6 +434,40 @@ export default function ManagerDashboardClient({
 
         <aside className='border-t border-white/40 bg-[#f8fbf9] lg:border-l lg:border-t-0'>
           <div className='h-full overflow-y-auto p-3 sm:p-4'>
+            <div className='mb-3 rounded-xl border border-slate-200 bg-white p-3'>
+              <p className='text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600'>
+                Acoes operacionais
+              </p>
+              <div className='mt-2 flex flex-wrap gap-2'>
+                <button
+                  onClick={startAddBlock}
+                  className='rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-800'
+                >
+                  Adicionar bloqueio
+                </button>
+                <button
+                  onClick={startAddFixedPoint}
+                  className='rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800'
+                >
+                  Adicionar ponto fixo
+                </button>
+                <button
+                  onClick={cancelEditAction}
+                  disabled={editMode === 'none'}
+                  className='rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60'
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={applyEditAction}
+                  disabled={editMode === 'none' || actionLoading}
+                  className='rounded-lg border border-[#006341] bg-[#006341] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60'
+                >
+                  {actionLoading ? 'Aplicando...' : 'Aplicar'}
+                </button>
+              </div>
+            </div>
+
             <div className='grid grid-cols-2 gap-2'>
               <div className='rounded-xl border border-emerald-200 bg-emerald-50 p-3'>
                 <p className='text-[11px] uppercase tracking-[0.1em] text-emerald-700'>Ativos</p>
