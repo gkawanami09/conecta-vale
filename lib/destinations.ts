@@ -26,7 +26,7 @@ export const DESTINATIONS: Destination[] = [
     name: 'Oficina',
     lng: -50.3388,
     lat: -21.2902,
-    aliases: ['manutencao', 'oficina central'],
+    aliases: ['oficina central'],
   },
   {
     key: 'portaria',

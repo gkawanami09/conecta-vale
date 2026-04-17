@@ -542,7 +542,10 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     const destinationFromAi = findDestinationByText(ai.destination_text ?? null)
     const destinationFromText = findDestinationByText(combinedText)
 
-    const safeIntent: MarcoIntent = ai.intent ?? 'unknown'
+    const hasExplicitForwardSignal = isExternalForwardKeyword(combinedText)
+    const safeIntent: MarcoIntent = hasExplicitForwardSignal
+      ? 'external_forward_request'
+      : (ai.intent ?? 'unknown')
     const safeEventType: MarcoInterpretation['eventType'] =
       ai.event_type === 'interdicao' ||
       ai.event_type === 'solicitacao_rota' ||
