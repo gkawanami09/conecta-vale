@@ -33,6 +33,13 @@ type RouteMetadata = {
   degradedForActiveBlocks?: boolean
 }
 
+type RoadBlockVisual = {
+  block: ActiveRouteBlock
+  lat: number
+  lng: number
+  radiusMeters: number
+}
+
 type RouteMapProps = {
   currentPosition: [number, number] | null // [lng, lat]
   end: [number, number] // [lng, lat]
@@ -233,6 +240,37 @@ function isValidCoord(value: number | null | undefined, max: number) {
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= max
 }
 
+function getRoadBlockVisual(monitoredRoadId: string | null, block: ActiveRouteBlock): RoadBlockVisual | null {
+  if (!monitoredRoadId) return null
+
+  const road = findMonitoredRoadById(monitoredRoadId)
+  if (!road || road.blockedSegment.length === 0) return null
+
+  const totals = road.blockedSegment.reduce(
+    (acc, point) => {
+      acc.lat += point[0]
+      acc.lng += point[1]
+      return acc
+    },
+    { lat: 0, lng: 0 }
+  )
+
+  const centerLat = totals.lat / road.blockedSegment.length
+  const centerLng = totals.lng / road.blockedSegment.length
+  const [startLat, startLng] = road.blockedSegment[0]
+  const [endLat, endLng] = road.blockedSegment[road.blockedSegment.length - 1]
+
+  const segmentMeters = haversineMeters([startLat, startLng], [endLat, endLng])
+  const radiusMeters = Math.max(55, Math.round(segmentMeters / 2 + 40))
+
+  return {
+    block,
+    lat: centerLat,
+    lng: centerLng,
+    radiusMeters,
+  }
+}
+
 export default function RouteMap({
   currentPosition,
   end,
@@ -283,6 +321,14 @@ export default function RouteMap({
         (block) => block.blockType === 'road' && block.monitoredRoadId
       ),
     [activeBlocks]
+  )
+
+  const roadBlockVisuals = useMemo(
+    () =>
+      roadBlocks
+        .map((block) => getRoadBlockVisual(block.monitoredRoadId, block))
+        .filter((item): item is RoadBlockVisual => item !== null),
+    [roadBlocks]
   )
 
   const pointBlocks = useMemo(
@@ -465,31 +511,34 @@ export default function RouteMap({
           autoFollow={autoFollow}
         />
 
-        {roadBlocks.map((block) => {
-          const road = block.monitoredRoadId
-            ? findMonitoredRoadById(block.monitoredRoadId)
-            : null
-          if (!road) return null
+        {roadBlockVisuals.map((item) => (
+          <Circle
+            key={`${item.block.roadId}-road-radius`}
+            center={[item.lat, item.lng]}
+            radius={item.radiusMeters}
+            pathOptions={{
+              color: '#ef4444',
+              weight: 2,
+              opacity: 0.85,
+              fillColor: '#ef4444',
+              fillOpacity: 0.15,
+            }}
+          />
+        ))}
 
-          return (
-            <Polyline
-              key={block.roadId}
-              positions={road.blockedSegment}
-              pathOptions={{
-                color: '#ef4444',
-                weight: 5,
-                opacity: 0.9,
-                dashArray: '10 7',
-              }}
-            >
-              <Popup>
-                <p className='text-xs font-semibold text-slate-900'>
-                  Bloqueio ativo: {block.roadName}
-                </p>
-              </Popup>
-            </Polyline>
-          )
-        })}
+        {roadBlockVisuals.map((item) => (
+          <Marker
+            key={`${item.block.roadId}-road-marker`}
+            position={[item.lat, item.lng]}
+            icon={blockPointIcon}
+          >
+            <Popup>
+              <p className='text-xs font-semibold text-slate-900'>
+                Bloqueio ativo: {item.block.roadName}
+              </p>
+            </Popup>
+          </Marker>
+        ))}
 
         {pointBlocks.map((block) => (
           <Circle
