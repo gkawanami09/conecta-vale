@@ -5,7 +5,6 @@ import L from 'leaflet'
 import {
   MapContainer,
   Marker,
-  Polyline,
   Popup,
   TileLayer,
   useMap,
@@ -28,6 +27,11 @@ type FocusTarget = {
 export type OperationalEditMode = 'none' | 'add_block' | 'add_fixed_point'
 
 type MapClickPoint = {
+  lat: number
+  lng: number
+}
+
+type BlockVisualPoint = {
   lat: number
   lng: number
 }
@@ -58,6 +62,46 @@ function formatRelativeTime(value: string | null) {
   if (seconds < 60) return `${seconds}s atras`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}min atras`
   return `${Math.floor(seconds / 3600)}h atras`
+}
+
+function getRoadBlockVisualPoint(monitoredRoadId: string | null): BlockVisualPoint | null {
+  if (!monitoredRoadId) return null
+
+  const road = findMonitoredRoadById(monitoredRoadId)
+  if (!road || road.blockedSegment.length === 0) return null
+
+  const totals = road.blockedSegment.reduce(
+    (acc, point) => {
+      acc.lat += point[0]
+      acc.lng += point[1]
+      return acc
+    },
+    { lat: 0, lng: 0 }
+  )
+
+  return {
+    lat: totals.lat / road.blockedSegment.length,
+    lng: totals.lng / road.blockedSegment.length,
+  }
+}
+
+function getOperationalBlockVisualPoint(block: OperationalRoadBlock): BlockVisualPoint | null {
+  if (
+    block.blockType === 'point' &&
+    typeof block.blockLat === 'number' &&
+    typeof block.blockLng === 'number'
+  ) {
+    return {
+      lat: block.blockLat,
+      lng: block.blockLng,
+    }
+  }
+
+  if (block.blockType === 'road') {
+    return getRoadBlockVisualPoint(block.monitoredRoadId)
+  }
+
+  return null
 }
 
 function MapClickController({
@@ -127,9 +171,9 @@ function FitAndFocusController({
     () =>
       showRoadBlocks
         ? roadBlocks
-            .filter((block) => block.blockType === 'point')
-            .filter((block) => block.blockLat !== null && block.blockLng !== null)
-            .map((block) => [block.blockLat as number, block.blockLng as number] as [number, number])
+            .map((block) => getOperationalBlockVisualPoint(block))
+            .filter((point): point is BlockVisualPoint => point !== null)
+            .map((point) => [point.lat, point.lng] as [number, number])
         : [],
     [roadBlocks, showRoadBlocks]
   )
@@ -285,6 +329,20 @@ export default function ManagerOperationalMap({
     [roadBlocks]
   )
 
+  const roadBlocksAsMarkers = useMemo(
+    () =>
+      roadBlocksByRoad
+        .map((block) => ({
+          block,
+          point: getRoadBlockVisualPoint(block.monitoredRoadId),
+        }))
+        .filter(
+          (item): item is { block: OperationalRoadBlock; point: BlockVisualPoint } =>
+            item.point !== null
+        ),
+    [roadBlocksByRoad]
+  )
+
   return (
     <div className='h-full w-full'>
       <MapContainer
@@ -317,31 +375,23 @@ export default function ManagerOperationalMap({
         />
 
         {showRoadBlocks &&
-          roadBlocksByRoad.map((block) => {
-            const road = block.monitoredRoadId
-              ? findMonitoredRoadById(block.monitoredRoadId)
-              : null
-
-            if (!road) return null
-
-            return (
-              <Polyline
-                key={block.roadId}
-                positions={road.blockedSegment}
-                pathOptions={{ color: '#ef4444', weight: 6, opacity: 0.82 }}
-              >
-                <Popup>
-                  <div className='space-y-1'>
-                    <p className='text-sm font-semibold text-slate-900'>{block.roadName}</p>
-                    <p className='text-xs text-slate-700'>{blockDisplayLabel(block)}</p>
-                    <p className='text-xs text-slate-600'>
-                      Atualizado: {formatRelativeTime(block.updatedAt)}
-                    </p>
-                  </div>
-                </Popup>
-              </Polyline>
-            )
-          })}
+          roadBlocksAsMarkers.map(({ block, point }) => (
+            <Marker
+              key={block.roadId}
+              position={[point.lat, point.lng]}
+              icon={pointBlockIcon}
+            >
+              <Popup>
+                <div className='space-y-1'>
+                  <p className='text-sm font-semibold text-slate-900'>{block.roadName}</p>
+                  <p className='text-xs text-slate-700'>{blockDisplayLabel(block)}</p>
+                  <p className='text-xs text-slate-600'>
+                    Atualizado: {formatRelativeTime(block.updatedAt)}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
 
         {showRoadBlocks &&
           pointBlocks.map((block) => (
