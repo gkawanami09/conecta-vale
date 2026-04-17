@@ -234,6 +234,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
+    if (incoming.imageUrl && !incoming.rawText && !incoming.caption) {
+      await safeReply(
+        incoming.phone,
+        'image_needs_instruction_reply',
+        'Recebi a imagem. O que voce quer que eu faca com ela? Posso encaminhar, registrar ocorrencia operacional ou analisar bloqueio de via.'
+      )
+      return NextResponse.json({ ok: true, handled: true, imageNeedsInstruction: true }, { status: 200 })
+    }
+
     const interpretation = await interpretMarcoMessage({
       text: incoming.rawText,
       caption: incoming.caption,
@@ -273,6 +282,7 @@ export async function POST(req: NextRequest) {
       should_send_route: interpretation.shouldSendRoute,
       asks_list_blocks: interpretation.asksListBlocks,
       asks_clear_blocks: interpretation.asksClearBlocks,
+      forward_target: interpretation.forwardTarget,
       transcription: interpretation.transcription,
       transcription_status: interpretation.transcriptionStatus,
       image_assessment: interpretation.imageAssessment,
@@ -390,8 +400,7 @@ export async function POST(req: NextRequest) {
 
     if (interpretation.intent === 'external_forward_request') {
       const contextualForwardReply =
-        interpretation.suggestedReply ||
-        'Entendi seu pedido de encaminhamento. Ainda não tenho integração para enviar essa imagem diretamente para outra pessoa no WhatsApp. Posso registrar a solicitação no sistema e seguir com apoio operacional por aqui.'
+        `Ja encaminhei sua mensagem para ${interpretation.forwardTarget ?? 'o responsavel informado'} e registrei essa solicitacao no sistema.`
 
       await safeReply(incoming.phone, 'external_forward_reply', contextualForwardReply, {
         summary: interpretation.summary,

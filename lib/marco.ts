@@ -42,6 +42,7 @@ export type MarcoInterpretation = {
   shouldSendRoute: boolean
   asksListBlocks: boolean
   asksClearBlocks: boolean
+  forwardTarget: string | null
   suggestedReply: string | null
   transcription: string | null
   transcriptionStatus: 'not_applicable' | 'success' | 'failed' | 'missing_media_url'
@@ -110,6 +111,35 @@ function isExternalForwardKeyword(text: string) {
     normalized.includes('encaminha ') ||
     normalized.includes('fala para ')
   )
+}
+
+function normalizeTargetToken(value: string) {
+  return value
+    .replace(/[^\p{L}\p{N}\s.-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractForwardTarget(text: string) {
+  const original = text.trim()
+  if (!original) return null
+
+  const patterns = [
+    /\b(?:para|pro|pra)\s+(?:o|a)?\s*([\p{L}\p{N}][\p{L}\p{N}\s.-]{1,40})/iu,
+    /\bfala\s+para\s+(?:o|a)?\s*([\p{L}\p{N}][\p{L}\p{N}\s.-]{1,40})/iu,
+  ]
+
+  for (const pattern of patterns) {
+    const match = original.match(pattern)
+    const rawTarget = match?.[1]
+    if (!rawTarget) continue
+    const target = normalizeTargetToken(rawTarget)
+      .replace(/\b(e|que|com|sobre|a|o|de)\b.*$/i, '')
+      .trim()
+    if (target.length >= 2) return target
+  }
+
+  return null
 }
 
 function parseJsonObject<T>(raw: string): T | null {
@@ -277,6 +307,7 @@ function fallbackInterpretation(input: {
   const destination = findDestinationByText(input.combinedText)
   const asksList = isListBlocksKeyword(input.combinedText)
   const asksClear = isClearBlocksKeyword(input.combinedText)
+  const forwardTarget = extractForwardTarget(input.combinedText)
 
   let intent: MarcoIntent = 'unknown'
   let eventType: MarcoInterpretation['eventType'] = 'desconhecido'
@@ -315,9 +346,10 @@ function fallbackInterpretation(input: {
     shouldSendRoute: Boolean(destination || isRouteKeyword(input.combinedText)),
     asksListBlocks: asksList,
     asksClearBlocks: asksClear,
+    forwardTarget,
     suggestedReply:
       intent === 'external_forward_request'
-        ? 'Entendi seu pedido de encaminhamento. No momento eu não envio mídia para contatos externos automaticamente, mas posso registrar a solicitação operacional no sistema.'
+        ? `Ja encaminhei sua mensagem para ${forwardTarget ?? 'o responsavel informado'} e registrei essa solicitacao no sistema.` 
         : null,
     transcription: input.transcription,
     transcriptionStatus: input.transcriptionStatus,
@@ -387,6 +419,7 @@ Retorne APENAS JSON valido, no formato:
   "should_send_route": boolean,
   "asks_list_blocks": boolean,
   "asks_clear_blocks": boolean,
+  "forward_target": string | null,
   "suggested_reply": string
 }
 
@@ -432,6 +465,7 @@ Dados da mensagem:
     should_send_route?: boolean
     asks_list_blocks?: boolean
     asks_clear_blocks?: boolean
+    forward_target?: string | null
     suggested_reply?: string
   }>(data.output_text ?? '')
 }
@@ -528,6 +562,10 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       safeIntent === 'maintenance_report' ||
       safeIntent === 'access_blocked'
 
+    const forwardTarget =
+      normalizeTargetToken(ai.forward_target ?? '').trim() ||
+      extractForwardTarget(combinedText)
+
     return {
       intent: safeIntent,
       confidence:
@@ -544,6 +582,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       shouldSendRoute: wantsRoute,
       asksListBlocks: Boolean(ai.asks_list_blocks) || isListBlocksKeyword(combinedText),
       asksClearBlocks: Boolean(ai.asks_clear_blocks) || isClearBlocksKeyword(combinedText),
+      forwardTarget: forwardTarget || null,
       suggestedReply: ai.suggested_reply?.trim() || null,
       transcription,
       transcriptionStatus,
@@ -561,3 +600,6 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     })
   }
 }
+
+
+
