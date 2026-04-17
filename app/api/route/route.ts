@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  buildAvoidPolygonsGeoJSON,
-  buildDetourWaypoints,
+  buildAvoidPolygonsFromBlocks,
+  buildDetourWaypointsFromBlocks,
   getActiveRoadBlocksGlobal,
 } from '@/lib/road-blocks'
-import { getRoadDefinitionsByIds } from '@/lib/road-blocks-definitions'
 
 type DirectionsRequestOptions = {
   coordinates: [number, number][]
-  avoidPolygons?: ReturnType<typeof buildAvoidPolygonsGeoJSON>
+  avoidPolygons?: ReturnType<typeof buildAvoidPolygonsFromBlocks>
 }
 
 async function requestDirections(
@@ -88,9 +87,8 @@ export async function POST(req: NextRequest) {
     }
 
     const activeBlocks = await getActiveRoadBlocksGlobal()
-    const activeRoads = getRoadDefinitionsByIds(activeBlocks.map((block) => block.roadId))
-    const avoidPolygons = buildAvoidPolygonsGeoJSON(activeRoads)
-    const detourWaypoints = buildDetourWaypoints(activeRoads)
+    const avoidPolygons = buildAvoidPolygonsFromBlocks(activeBlocks)
+    const detourWaypoints = buildDetourWaypointsFromBlocks(activeBlocks)
 
     let data: Record<string, unknown>
     let routeMode: 'default' | 'avoid_polygons' | 'detour_fallback' = 'default'
@@ -138,6 +136,7 @@ export async function POST(req: NextRequest) {
       activeRoadBlocks: activeBlocks.map((block) => ({
         roadId: block.roadId,
         roadName: block.roadName,
+        blockType: block.blockType,
       })),
     }
 

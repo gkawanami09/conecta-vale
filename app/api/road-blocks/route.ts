@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   activateRoadBlockGlobal,
+  clearRoadBlockByIdGlobal,
   clearAllRoadBlocksGlobal,
   clearRoadBlockGlobal,
   detectRoadBlockMessage,
@@ -79,13 +80,12 @@ export async function DELETE(req: NextRequest) {
 
     if (roadId) {
       const road = findMonitoredRoadById(roadId)
-      if (!road) {
-        return NextResponse.json(
-          { ok: false, error: 'Via monitorada nao encontrada' },
-          { status: 400 }
-        )
+
+      if (road) {
+        await clearRoadBlockGlobal(road.id)
+      } else {
+        await clearRoadBlockByIdGlobal(roadId)
       }
-      await clearRoadBlockGlobal(road.id)
     } else {
       await clearAllRoadBlocksGlobal()
     }
