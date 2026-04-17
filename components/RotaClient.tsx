@@ -3,19 +3,55 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { useRealtimeLocation, type LocationStatus } from '@/hooks/useRealtimeLocation'
 
 const RouteMap = dynamic(() => import('@/components/RouteMap'), {
   ssr: false,
 })
 
+type RouteDeviationState = {
+  isOffRoute: boolean
+  distanceMeters: number | null
+}
+
+function statusLabel(status: LocationStatus) {
+  if (status === 'active') return 'Localizacao ativa'
+  if (status === 'requesting') return 'Solicitando permissao'
+  if (status === 'denied') return 'Permissao negada'
+  if (status === 'error') return 'Falha de localizacao'
+  if (status === 'unsupported') return 'Sem suporte de GPS'
+  return 'Aguardando localizacao'
+}
+
+function statusDotClass(status: LocationStatus) {
+  if (status === 'active') return 'bg-[#2850B8] animate-pulse'
+  if (status === 'requesting') return 'bg-[#70C8F8] animate-pulse'
+  return 'bg-rose-400'
+}
+
 export default function RotaClient() {
   const searchParams = useSearchParams()
 
-  const [start, setStart] = useState<[number, number] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loadingLocation, setLoadingLocation] = useState(false)
+  const {
+    position,
+    heading,
+    accuracy,
+    status,
+    error,
+    requestLocation,
+  } = useRealtimeLocation({
+    autoStart: true,
+    minUpdateMs: 1300,
+    minDistanceMeters: 4,
+  })
+
   const [showLocationHint, setShowLocationHint] = useState(true)
   const [recenterTick, setRecenterTick] = useState(0)
+  const [isAutoFollow, setIsAutoFollow] = useState(true)
+  const [deviation, setDeviation] = useState<RouteDeviationState>({
+    isOffRoute: false,
+    distanceMeters: null,
+  })
 
   const destination = useMemo(() => {
     const destLng = Number(searchParams.get('destLng'))
@@ -37,71 +73,35 @@ export default function RotaClient() {
     }
   }, [searchParams])
 
-  function handleUseMyLocation() {
-    if (!navigator.geolocation) {
-      setError('Geolocalizacao nao e suportada neste navegador.')
-      return
-    }
-
-    setLoadingLocation(true)
-    setError(null)
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lng = position.coords.longitude
-        const lat = position.coords.latitude
-        setStart([lng, lat])
-        setLoadingLocation(false)
-        setShowLocationHint(false)
-      },
-      (geoError) => {
-        console.error('Erro de geolocalizacao:', {
-          code: geoError.code,
-          message: geoError.message,
-        })
-
-        let friendlyMessage = 'Nao foi possivel obter sua localizacao.'
-
-        if (geoError.code === 1) {
-          friendlyMessage = 'Permissao de localizacao negada.'
-        } else if (geoError.code === 2) {
-          friendlyMessage = 'Localizacao indisponivel no momento.'
-        } else if (geoError.code === 3) {
-          friendlyMessage = 'Tempo esgotado ao tentar obter a localizacao.'
-        }
-
-        setError(friendlyMessage)
-        setLoadingLocation(false)
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 20000,
-        maximumAge: 60000,
-      }
-    )
-  }
+  const routeKey = `${destination.end[0]}:${destination.end[1]}`
 
   function handleRecenter() {
-    if (!start) return
+    if (!position) return
+    setIsAutoFollow(true)
     setRecenterTick((value) => value + 1)
   }
+
+  const currentError = error
 
   return (
     <section className='relative h-full w-full'>
       <RouteMap
-        start={start}
+        key={routeKey}
+        currentPosition={position}
         end={destination.end}
         recenterTick={recenterTick}
+        autoFollow={isAutoFollow}
+        heading={heading}
+        onMapInteraction={() => setIsAutoFollow(false)}
+        onRouteDeviationChange={setDeviation}
       />
 
       <div className='pointer-events-none absolute inset-0 z-[1100]'>
-        <div className='pointer-events-auto absolute left-3 top-3 max-w-[78vw] rounded-2xl border border-white/70 bg-white/90 px-3.5 py-3 shadow-lg backdrop-blur sm:max-w-sm sm:px-4'>
+        <div className='pointer-events-auto absolute left-3 top-3 max-w-[82vw] rounded-2xl border border-white/70 bg-white/90 px-3.5 py-3 shadow-lg backdrop-blur sm:max-w-sm sm:px-4'>
           <div className='flex items-center gap-2'>
-            <span
-              className={`h-2.5 w-2.5 rounded-full ${start ? 'animate-pulse bg-[#2850B8]' : 'bg-[#70C8F8]'}`}
-            />
+            <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(status)}`} />
             <p className='text-[11px] font-semibold uppercase tracking-[0.12em] text-[#384880]'>
-              {start ? 'Rota ativa' : 'Aguardando GPS'}
+              {statusLabel(status)}
             </p>
           </div>
           <h2 className='mt-1.5 truncate text-base font-semibold text-slate-900 sm:text-lg'>
@@ -112,29 +112,41 @@ export default function RotaClient() {
               Destino da URL invalido. Usando destino padrao.
             </p>
           )}
+          {typeof accuracy === 'number' && status === 'active' && (
+            <p className='mt-1 text-[11px] text-slate-600'>
+              Precisao GPS: {Math.round(accuracy)}m
+            </p>
+          )}
+          {deviation.isOffRoute && deviation.distanceMeters !== null && (
+            <p className='mt-1 text-[11px] font-medium text-amber-700'>
+              Fora da rota por ~{Math.round(deviation.distanceMeters)}m (pronto para recalculo).
+            </p>
+          )}
         </div>
 
         <div className='pointer-events-auto absolute bottom-4 right-3 flex flex-col gap-2 sm:right-4 sm:top-3 sm:bottom-auto'>
-          {!start && (
+          {status !== 'active' && (
             <button
-              onClick={handleUseMyLocation}
-              disabled={loadingLocation}
+              onClick={requestLocation}
+              disabled={status === 'requesting'}
               className='rounded-xl bg-[#2850B8] px-4 py-2.5 text-xs font-semibold text-white shadow-lg transition hover:bg-[#2347A3] disabled:cursor-not-allowed disabled:bg-[#4A63B7] sm:text-sm'
             >
-              {loadingLocation ? 'Obtendo GPS...' : 'Usar minha localizacao'}
+              {status === 'requesting'
+                ? 'Solicitando GPS...'
+                : 'Ativar localizacao'}
             </button>
           )}
 
           <button
             onClick={handleRecenter}
-            disabled={!start}
+            disabled={!position}
             className='rounded-xl border border-white/60 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-800 shadow-md backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-45 sm:text-sm'
           >
             Centralizar
           </button>
         </div>
 
-        {!start && showLocationHint && (
+        {!position && showLocationHint && !currentError && (
           <div className='pointer-events-auto absolute bottom-4 left-3 right-24 rounded-2xl border border-white/60 bg-white/92 px-3.5 py-3 shadow-xl backdrop-blur sm:left-4 sm:right-[180px] sm:max-w-md'>
             <div className='flex items-start justify-between gap-3'>
               <div>
@@ -142,7 +154,7 @@ export default function RotaClient() {
                   Permissao de localizacao
                 </p>
                 <p className='mt-1 text-xs leading-relaxed text-slate-700 sm:text-sm'>
-                  Ative sua localizacao para iniciar a navegacao operacional.
+                  Permita o GPS para acompanhar sua posicao em tempo real no mapa.
                 </p>
               </div>
               <button
@@ -156,9 +168,9 @@ export default function RotaClient() {
           </div>
         )}
 
-        {error && (
-          <div className='pointer-events-auto absolute bottom-28 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2.5 text-xs font-medium text-rose-700 shadow-md sm:bottom-4 sm:left-1/2 sm:right-auto sm:w-[420px] sm:-translate-x-1/2 sm:text-sm'>
-            {error}
+        {currentError && (
+          <div className='pointer-events-auto absolute bottom-28 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2.5 text-xs font-medium text-rose-700 shadow-md sm:bottom-4 sm:left-1/2 sm:right-auto sm:w-[440px] sm:-translate-x-1/2 sm:text-sm'>
+            {currentError}
           </div>
         )}
       </div>

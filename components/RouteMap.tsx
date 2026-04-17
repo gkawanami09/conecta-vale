@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import {
   MapContainer,
@@ -9,77 +9,211 @@ import {
   Popup,
   TileLayer,
   useMap,
+  useMapEvents,
 } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
 type RouteMapProps = {
-  start: [number, number] | null // [lng, lat]
+  currentPosition: [number, number] | null // [lng, lat]
   end: [number, number] // [lng, lat]
   recenterTick: number
+  autoFollow: boolean
+  heading: number | null
+  onMapInteraction: () => void
+  onRouteDeviationChange: (value: {
+    isOffRoute: boolean
+    distanceMeters: number | null
+  }) => void
 }
 
 type MapViewportControllerProps = {
-  startLatLng: [number, number] | null
+  currentPositionLatLng: [number, number] | null
   endLatLng: [number, number]
   routeCoords: [number, number][]
   recenterTick: number
+  autoFollow: boolean
+}
+
+const EARTH_RADIUS_METERS = 6371000
+const OFF_ROUTE_THRESHOLD_METERS = 45
+
+function toRad(value: number) {
+  return (value * Math.PI) / 180
+}
+
+function haversineMeters(a: [number, number], b: [number, number]) {
+  const [lat1, lng1] = a
+  const [lat2, lng2] = b
+
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const lat1Rad = toRad(lat1)
+  const lat2Rad = toRad(lat2)
+
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dLng / 2) ** 2
+
+  return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(h))
+}
+
+function latLngToMeters(lat: number, lng: number) {
+  const x = toRad(lng) * EARTH_RADIUS_METERS * Math.cos(toRad(lat))
+  const y = toRad(lat) * EARTH_RADIUS_METERS
+  return { x, y }
+}
+
+function pointToSegmentDistanceMeters(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number]
+) {
+  const pM = latLngToMeters(p[0], p[1])
+  const aM = latLngToMeters(a[0], a[1])
+  const bM = latLngToMeters(b[0], b[1])
+
+  const abx = bM.x - aM.x
+  const aby = bM.y - aM.y
+  const apx = pM.x - aM.x
+  const apy = pM.y - aM.y
+
+  const abLenSq = abx * abx + aby * aby
+  if (abLenSq === 0) {
+    return Math.hypot(apx, apy)
+  }
+
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / abLenSq))
+  const cx = aM.x + abx * t
+  const cy = aM.y + aby * t
+
+  return Math.hypot(pM.x - cx, pM.y - cy)
+}
+
+function minDistanceToRouteMeters(
+  point: [number, number],
+  polyline: [number, number][]
+) {
+  if (polyline.length < 2) return null
+
+  let minDistance = Number.POSITIVE_INFINITY
+
+  for (let i = 0; i < polyline.length - 1; i += 1) {
+    const segmentDistance = pointToSegmentDistanceMeters(
+      point,
+      polyline[i],
+      polyline[i + 1]
+    )
+    if (segmentDistance < minDistance) {
+      minDistance = segmentDistance
+    }
+  }
+
+  return Number.isFinite(minDistance) ? minDistance : null
+}
+
+function MapInteractionTracker({ onMapInteraction }: { onMapInteraction: () => void }) {
+  useMapEvents({
+    dragstart: onMapInteraction,
+    zoomstart: onMapInteraction,
+  })
+  return null
 }
 
 function MapViewportController({
-  startLatLng,
+  currentPositionLatLng,
   endLatLng,
   routeCoords,
   recenterTick,
+  autoFollow,
 }: MapViewportControllerProps) {
   const map = useMap()
-  const startLat = startLatLng?.[0] ?? null
-  const startLng = startLatLng?.[1] ?? null
-  const endLat = endLatLng[0]
-  const endLng = endLatLng[1]
+  const didInitialFitRef = useRef(false)
+  const lastFollowRef = useRef<{
+    ts: number
+    point: [number, number]
+  } | null>(null)
 
   useEffect(() => {
-    if (routeCoords.length > 1) {
+    if (routeCoords.length > 1 && !didInitialFitRef.current) {
       map.fitBounds(routeCoords, {
         padding: [56, 56],
         maxZoom: 16,
       })
+      didInitialFitRef.current = true
       return
     }
 
-    if (startLat !== null && startLng !== null) {
-      map.flyTo([startLat, startLng], 15, { duration: 0.9 })
+    if (!didInitialFitRef.current && currentPositionLatLng) {
+      map.flyTo(currentPositionLatLng, 15, { duration: 0.9 })
+      didInitialFitRef.current = true
       return
     }
 
-    map.flyTo([endLat, endLng], 15, { duration: 0.9 })
-  }, [map, routeCoords, startLat, startLng, endLat, endLng])
+    if (!didInitialFitRef.current) {
+      map.flyTo(endLatLng, 15, { duration: 0.9 })
+      didInitialFitRef.current = true
+    }
+  }, [map, routeCoords, currentPositionLatLng, endLatLng])
 
   useEffect(() => {
-    if (startLat === null || startLng === null || recenterTick === 0) return
+    if (!autoFollow || !currentPositionLatLng) return
 
-    map.flyTo([startLat, startLng], Math.max(16, map.getZoom()), {
+    const now = Date.now()
+    const previous = lastFollowRef.current
+
+    if (previous) {
+      const elapsed = now - previous.ts
+      const moved = haversineMeters(previous.point, currentPositionLatLng)
+      if (elapsed < 900 || moved < 8) {
+        return
+      }
+    }
+
+    lastFollowRef.current = { ts: now, point: currentPositionLatLng }
+    map.panTo(currentPositionLatLng, {
+      animate: true,
       duration: 0.8,
     })
-  }, [map, recenterTick, startLat, startLng])
+  }, [map, autoFollow, currentPositionLatLng])
+
+  useEffect(() => {
+    if (!currentPositionLatLng || recenterTick === 0) return
+
+    map.flyTo(currentPositionLatLng, Math.max(16, map.getZoom()), {
+      duration: 0.8,
+    })
+  }, [map, recenterTick, currentPositionLatLng])
 
   return null
 }
 
 export default function RouteMap({
-  start,
+  currentPosition,
   end,
   recenterTick,
+  autoFollow,
+  heading,
+  onMapInteraction,
+  onRouteDeviationChange,
 }: RouteMapProps) {
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const routeStartRef = useRef<[number, number] | null>(null)
+  const routeRequestKeyRef = useRef<string | null>(null)
 
-  const startLatLng: [number, number] | null = start ? [start[1], start[0]] : null
+  const currentPositionLatLng = useMemo<[number, number] | null>(
+    () => (currentPosition ? [currentPosition[1], currentPosition[0]] : null),
+    [currentPosition]
+  )
   const endLatLng: [number, number] = [end[1], end[0]]
 
-  const initialCenter: [number, number] = startLatLng
-    ? [(startLatLng[0] + endLatLng[0]) / 2, (startLatLng[1] + endLatLng[1]) / 2]
+  const initialCenter: [number, number] = currentPositionLatLng
+    ? [(currentPositionLatLng[0] + endLatLng[0]) / 2, (currentPositionLatLng[1] + endLatLng[1]) / 2]
     : endLatLng
+
+  const headingDegrees =
+    typeof heading === 'number' && Number.isFinite(heading) ? heading : 0
 
   const userIcon = useMemo(
     () =>
@@ -88,12 +222,12 @@ export default function RouteMap({
         html: `
           <span class="connecta-user-marker-pulse"></span>
           <span class="connecta-user-marker-core"></span>
-          <span class="connecta-user-marker-arrow"></span>
+          <span class="connecta-user-marker-arrow" style="transform: translateX(-50%) rotate(${headingDegrees}deg)"></span>
         `,
         iconSize: [30, 30],
         iconAnchor: [15, 15],
       }),
-    []
+    [headingDegrees]
   )
 
   const destinationIcon = useMemo(
@@ -108,12 +242,16 @@ export default function RouteMap({
   )
 
   useEffect(() => {
-    if (!start) {
-      setRouteCoords([])
-      setLoading(false)
-      setError(null)
-      return
+    if (!routeStartRef.current && currentPosition) {
+      routeStartRef.current = currentPosition
     }
+
+    const routeStart = routeStartRef.current
+    if (!routeStart) return
+
+    const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}`
+    if (routeRequestKeyRef.current === requestKey) return
+    routeRequestKeyRef.current = requestKey
 
     async function fetchRoute() {
       try {
@@ -125,7 +263,7 @@ export default function RouteMap({
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ start, end }),
+          body: JSON.stringify({ start: routeStart, end }),
         })
 
         const data = await response.json()
@@ -155,7 +293,25 @@ export default function RouteMap({
     }
 
     fetchRoute()
-  }, [start, end])
+  }, [currentPosition, end])
+
+  useEffect(() => {
+    if (!currentPositionLatLng || routeCoords.length < 2) {
+      onRouteDeviationChange({ isOffRoute: false, distanceMeters: null })
+      return
+    }
+
+    const distanceToRoute = minDistanceToRouteMeters(currentPositionLatLng, routeCoords)
+    if (distanceToRoute === null) {
+      onRouteDeviationChange({ isOffRoute: false, distanceMeters: null })
+      return
+    }
+
+    onRouteDeviationChange({
+      isOffRoute: distanceToRoute > OFF_ROUTE_THRESHOLD_METERS,
+      distanceMeters: distanceToRoute,
+    })
+  }, [currentPositionLatLng, routeCoords, onRouteDeviationChange])
 
   return (
     <div className='relative h-full w-full'>
@@ -170,19 +326,22 @@ export default function RouteMap({
           url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
         />
 
+        <MapInteractionTracker onMapInteraction={onMapInteraction} />
+
         <MapViewportController
-          startLatLng={startLatLng}
+          currentPositionLatLng={currentPositionLatLng}
           endLatLng={endLatLng}
           routeCoords={routeCoords}
           recenterTick={recenterTick}
+          autoFollow={autoFollow}
         />
 
         <Marker position={endLatLng} icon={destinationIcon}>
           <Popup>Destino</Popup>
         </Marker>
 
-        {startLatLng && (
-          <Marker position={startLatLng} icon={userIcon}>
+        {currentPositionLatLng && (
+          <Marker position={currentPositionLatLng} icon={userIcon}>
             <Popup>Sua posicao</Popup>
           </Marker>
         )}
@@ -250,8 +409,9 @@ export default function RouteMap({
           border-left: 5px solid transparent;
           border-right: 5px solid transparent;
           border-bottom: 9px solid #2850b8;
-          transform: translateX(-50%);
+          transform-origin: center 13px;
           filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.3));
+          transition: transform 220ms ease-out;
         }
 
         .connecta-destination-marker-core {
