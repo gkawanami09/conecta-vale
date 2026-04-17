@@ -262,10 +262,6 @@ export default function ManagerDashboardClient({
   }
 
   async function removeRoadBlock(roadId: string) {
-    if (!window.confirm('Deseja desativar este bloqueio operacional?')) {
-      return
-    }
-
     setActionLoading(true)
     setActionError(null)
 
@@ -294,10 +290,6 @@ export default function ManagerDashboardClient({
   }
 
   async function removeFixedPoint(pointId: string) {
-    if (!window.confirm('Deseja remover este ponto fixo criado no dashboard?')) {
-      return
-    }
-
     setActionLoading(true)
     setActionError(null)
 
@@ -358,8 +350,8 @@ export default function ManagerDashboardClient({
         </div>
       </header>
 
-      <section className='grid h-[calc(100vh-56px)] grid-cols-1 lg:grid-cols-[1fr_360px]'>
-        <div className='relative min-h-[320px]'>
+      <section className='grid min-h-[calc(100vh-56px)] grid-cols-1 lg:h-[calc(100vh-56px)] lg:grid-cols-[1fr_360px] lg:overflow-hidden'>
+        <div className='relative min-h-[320px] h-[46vh] lg:h-full'>
           <ManagerOperationalMap
             users={filteredUsers}
             fixedPoints={snapshot?.fixedPoints ?? []}
@@ -432,11 +424,11 @@ export default function ManagerDashboardClient({
           </div>
         </div>
 
-        <aside className='border-t border-white/40 bg-[#f8fbf9] lg:border-l lg:border-t-0'>
-          <div className='h-full overflow-y-auto p-3 sm:p-4'>
+        <aside className='border-t border-white/40 bg-[#f8fbf9] lg:h-full lg:overflow-y-auto lg:border-l lg:border-t-0'>
+          <div className='p-3 sm:p-4'>
             <div className='mb-3 rounded-xl border border-slate-200 bg-white p-3'>
               <p className='text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600'>
-                Acoes operacionais
+                AÇÕES OPERACIONAIS
               </p>
               <div className='mt-2 flex flex-wrap gap-2'>
                 <button
@@ -610,7 +602,11 @@ export default function ManagerDashboardClient({
                       </p>
                     </button>
                     <button
-                      onClick={() => removeRoadBlock(block.roadId)}
+                      type='button'
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void removeRoadBlock(block.roadId)
+                      }}
                       className='mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700'
                     >
                       Remover bloqueio
@@ -643,7 +639,11 @@ export default function ManagerDashboardClient({
                     </button>
                     {point.source === 'custom' && (
                       <button
-                        onClick={() => removeFixedPoint(point.id)}
+                        type='button'
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void removeFixedPoint(point.id)
+                        }}
                         className='mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800'
                       >
                         Remover ponto
