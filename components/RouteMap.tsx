@@ -203,6 +203,7 @@ export default function RouteMap({
   const [error, setError] = useState<string | null>(null)
   const routeStartRef = useRef<[number, number] | null>(null)
   const routeRequestKeyRef = useRef<string | null>(null)
+  const routeFetchInFlightRef = useRef(false)
 
   const currentPositionLatLng = useMemo<[number, number] | null>(
     () => (currentPosition ? [currentPosition[1], currentPosition[0]] : null),
@@ -252,11 +253,12 @@ export default function RouteMap({
     if (!routeStart) return
 
     const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}|${routeRefreshKey}`
-    if (routeRequestKeyRef.current === requestKey) return
-    routeRequestKeyRef.current = requestKey
+    if (routeRequestKeyRef.current === requestKey && routeCoords.length > 1) return
+    if (routeFetchInFlightRef.current) return
 
     async function fetchRoute() {
       try {
+        routeFetchInFlightRef.current = true
         setLoading(true)
         setError(null)
 
@@ -285,17 +287,19 @@ export default function RouteMap({
           ([lng, lat]: [number, number]) => [lat, lng]
         )
 
+        routeRequestKeyRef.current = requestKey
         setRouteCoords(leafletCoords)
       } catch (err) {
         console.error(err)
         setError('Nao foi possivel carregar a rota.')
       } finally {
+        routeFetchInFlightRef.current = false
         setLoading(false)
       }
     }
 
-    fetchRoute()
-  }, [currentPosition, end, routeRefreshKey])
+    void fetchRoute()
+  }, [currentPosition, end, routeRefreshKey, routeCoords.length])
 
   useEffect(() => {
     if (!currentPositionLatLng || routeCoords.length < 2) {

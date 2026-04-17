@@ -91,7 +91,11 @@ export async function POST(req: NextRequest) {
     const detourWaypoints = buildDetourWaypointsFromBlocks(activeBlocks)
 
     let data: Record<string, unknown>
-    let routeMode: 'default' | 'avoid_polygons' | 'detour_fallback' = 'default'
+    let routeMode:
+      | 'default'
+      | 'avoid_polygons'
+      | 'detour_fallback'
+      | 'default_fallback' = 'default'
 
     try {
       if (avoidPolygons) {
@@ -106,28 +110,39 @@ export async function POST(req: NextRequest) {
         })
       }
     } catch (avoidError) {
-      if (detourWaypoints.length > 0) {
-        try {
+      try {
+        if (detourWaypoints.length > 0) {
           data = await requestDirections(orsApiKey, {
             coordinates: [startCoord, ...detourWaypoints, endCoord],
           })
           routeMode = 'detour_fallback'
-        } catch (detourError) {
-          console.error('Erro ORS avoid+detour:', {
+        } else {
+          throw avoidError
+        }
+      } catch (detourError) {
+        // Fallback final: evita ficar sem rota no cliente quando o ORS rejeita avoid/detour.
+        // Mantem operacao funcional e sinaliza via metadata que foi fallback.
+        try {
+          data = await requestDirections(orsApiKey, {
+            coordinates: [startCoord, endCoord],
+          })
+          routeMode = 'default_fallback'
+          console.warn('[route.api] default_fallback_enabled', {
             avoidError,
             detourError,
+            activeBlocks: activeBlocks.length,
+          })
+        } catch (defaultError) {
+          console.error('Erro ORS avoid+detour+default:', {
+            avoidError,
+            detourError,
+            defaultError,
           })
           return NextResponse.json(
             { error: 'Erro ao buscar rota no OpenRouteService' },
             { status: 502 }
           )
         }
-      } else {
-        console.error('Erro ORS default/avoid:', avoidError)
-        return NextResponse.json(
-          { error: 'Erro ao buscar rota no OpenRouteService' },
-          { status: 502 }
-        )
       }
     }
 
