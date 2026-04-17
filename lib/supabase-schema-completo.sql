@@ -17,7 +17,11 @@ create table if not exists public.road_blocks (
   source_phone text,
   source_type text,
   source_keyword text,
-  source_message text
+  source_message text,
+  block_type text default 'road',
+  block_lng double precision,
+  block_lat double precision,
+  block_radius_meters integer
 );
 
 create index if not exists idx_road_blocks_active
@@ -25,6 +29,13 @@ create index if not exists idx_road_blocks_active
 
 create index if not exists idx_road_blocks_updated_at
   on public.road_blocks (updated_at desc);
+
+create index if not exists idx_road_blocks_block_type
+  on public.road_blocks (block_type);
+
+create index if not exists idx_road_blocks_point_coords
+  on public.road_blocks (block_lat, block_lng)
+  where active = true and block_type = 'point';
 
 -- =============================================
 -- 2) LOG DE MENSAGENS (WHATSAPP)
@@ -88,7 +99,34 @@ create index if not exists idx_shared_locations_sharing_enabled
   on public.shared_locations (sharing_enabled);
 
 -- =============================================
--- 5) GESTOR (LOGIN)
+-- 5) PONTOS FIXOS OPERACIONAIS (GESTOR)
+-- =============================================
+create table if not exists public.operational_fixed_points (
+  point_id text primary key,
+  name text not null,
+  aliases text[],
+  lng double precision not null,
+  lat double precision not null,
+  kind text not null default 'operational',
+  active boolean not null default true,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint operational_fixed_points_kind_check
+    check (kind in ('terminal', 'operational'))
+);
+
+create index if not exists idx_operational_fixed_points_active
+  on public.operational_fixed_points (active);
+
+create index if not exists idx_operational_fixed_points_name
+  on public.operational_fixed_points (name);
+
+create index if not exists idx_operational_fixed_points_updated_at
+  on public.operational_fixed_points (updated_at desc);
+
+-- =============================================
+-- 6) GESTOR (LOGIN)
 -- =============================================
 create table if not exists public.manager_accounts (
   email text primary key,
@@ -125,6 +163,11 @@ for each row execute procedure public.touch_updated_at();
 drop trigger if exists trg_manager_accounts_touch_updated_at on public.manager_accounts;
 create trigger trg_manager_accounts_touch_updated_at
 before update on public.manager_accounts
+for each row execute procedure public.touch_updated_at();
+
+drop trigger if exists trg_operational_fixed_points_touch_updated_at on public.operational_fixed_points;
+create trigger trg_operational_fixed_points_touch_updated_at
+before update on public.operational_fixed_points
 for each row execute procedure public.touch_updated_at();
 
 -- Funcao RPC para validar login do gestor via hash bcrypt (pgcrypto)
