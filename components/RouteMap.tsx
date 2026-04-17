@@ -19,6 +19,7 @@ type RouteMapProps = {
   recenterTick: number
   autoFollow: boolean
   heading: number | null
+  routeRefreshKey: string
   onMapInteraction: () => void
   onRouteDeviationChange: (value: {
     isOffRoute: boolean
@@ -193,6 +194,7 @@ export default function RouteMap({
   recenterTick,
   autoFollow,
   heading,
+  routeRefreshKey,
   onMapInteraction,
   onRouteDeviationChange,
 }: RouteMapProps) {
@@ -293,7 +295,7 @@ export default function RouteMap({
     }
 
     fetchRoute()
-  }, [currentPosition, end])
+  }, [currentPosition, end, routeRefreshKey])
 
   useEffect(() => {
     if (!currentPositionLatLng || routeCoords.length < 2) {
@@ -358,6 +360,7 @@ export default function RouteMap({
             }}
           />
         )}
+
       </MapContainer>
 
       {loading && (

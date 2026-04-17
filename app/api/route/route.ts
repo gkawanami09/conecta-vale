@@ -1,4 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  buildAvoidPolygonsGeoJSON,
+  buildDetourWaypoints,
+  getActiveRoadBlocksGlobal,
+} from '@/lib/road-blocks'
+import { getRoadDefinitionsByIds } from '@/lib/road-blocks-definitions'
+
+type DirectionsRequestOptions = {
+  coordinates: [number, number][]
+  avoidPolygons?: ReturnType<typeof buildAvoidPolygonsGeoJSON>
+}
+
+async function requestDirections(
+  orsApiKey: string,
+  options: DirectionsRequestOptions
+) {
+  const payload: Record<string, unknown> = {
+    coordinates: options.coordinates,
+  }
+
+  if (options.avoidPolygons) {
+    payload.options = {
+      avoid_polygons: options.avoidPolygons,
+    }
+  }
+
+  const response = await fetch(
+    'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: orsApiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(JSON.stringify(data))
+  }
+
+  return data
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +60,20 @@ export async function POST(req: NextRequest) {
       end.length !== 2
     ) {
       return NextResponse.json(
-        { error: 'Parâmetros start e end inválidos' },
+        { error: 'Parametros start e end invalidos' },
+        { status: 400 }
+      )
+    }
+
+    const startCoord: [number, number] = [Number(start[0]), Number(start[1])]
+    const endCoord: [number, number] = [Number(end[0]), Number(end[1])]
+
+    if (
+      startCoord.some((value) => Number.isNaN(value)) ||
+      endCoord.some((value) => Number.isNaN(value))
+    ) {
+      return NextResponse.json(
+        { error: 'Coordenadas start/end invalidas' },
         { status: 400 }
       )
     }
@@ -23,36 +82,69 @@ export async function POST(req: NextRequest) {
 
     if (!orsApiKey) {
       return NextResponse.json(
-        { error: 'ORS_API_KEY não configurada' },
+        { error: 'ORS_API_KEY nao configurada' },
         { status: 500 }
       )
     }
 
-    const response = await fetch(
-      'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: orsApiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          coordinates: [start, end],
-        }),
+    const activeBlocks = await getActiveRoadBlocksGlobal()
+    const activeRoads = getRoadDefinitionsByIds(activeBlocks.map((block) => block.roadId))
+    const avoidPolygons = buildAvoidPolygonsGeoJSON(activeRoads)
+    const detourWaypoints = buildDetourWaypoints(activeRoads)
+
+    let data: Record<string, unknown>
+    let routeMode: 'default' | 'avoid_polygons' | 'detour_fallback' = 'default'
+
+    try {
+      if (avoidPolygons) {
+        data = await requestDirections(orsApiKey, {
+          coordinates: [startCoord, endCoord],
+          avoidPolygons,
+        })
+        routeMode = 'avoid_polygons'
+      } else {
+        data = await requestDirections(orsApiKey, {
+          coordinates: [startCoord, endCoord],
+        })
       }
-    )
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      console.error('Erro ORS:', data)
-      return NextResponse.json(
-        { error: 'Erro ao buscar rota no OpenRouteService', details: data },
-        { status: response.status }
-      )
+    } catch (avoidError) {
+      if (detourWaypoints.length > 0) {
+        try {
+          data = await requestDirections(orsApiKey, {
+            coordinates: [startCoord, ...detourWaypoints, endCoord],
+          })
+          routeMode = 'detour_fallback'
+        } catch (detourError) {
+          console.error('Erro ORS avoid+detour:', {
+            avoidError,
+            detourError,
+          })
+          return NextResponse.json(
+            { error: 'Erro ao buscar rota no OpenRouteService' },
+            { status: 502 }
+          )
+        }
+      } else {
+        console.error('Erro ORS default/avoid:', avoidError)
+        return NextResponse.json(
+          { error: 'Erro ao buscar rota no OpenRouteService' },
+          { status: 502 }
+        )
+      }
     }
 
-    return NextResponse.json(data)
+    const metadata = {
+      routeMode,
+      activeRoadBlocks: activeBlocks.map((block) => ({
+        roadId: block.roadId,
+        roadName: block.roadName,
+      })),
+    }
+
+    return NextResponse.json({
+      ...(data ?? {}),
+      metadata,
+    })
   } catch (error) {
     console.error('Erro na API de rota:', error)
     return NextResponse.json(

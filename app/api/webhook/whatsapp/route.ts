@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseOperationalMessage, type ParsedEvent } from '@/lib/ai'
 import { findDestinationByText } from '@/lib/destinations'
+import {
+  activateRoadBlockGlobal,
+  detectRoadBlockMessage,
+} from '@/lib/road-blocks'
 import { buildRouteLink } from '@/lib/route-link'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendWhatsAppText } from '@/lib/whatsapp'
@@ -247,6 +251,83 @@ export async function POST(req: NextRequest) {
         messageType: incoming.messageType,
       })
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
+    }
+
+    const roadBlockDetection = detectRoadBlockMessage(incoming.rawText)
+    if (roadBlockDetection) {
+      console.log(`${LOG_PREFIX} road_block_detected`, {
+        roadId: roadBlockDetection.road.id,
+        roadName: roadBlockDetection.road.name,
+        intentKey: roadBlockDetection.intentKey,
+      })
+
+      try {
+        await activateRoadBlockGlobal({
+          roadId: roadBlockDetection.road.id,
+          sourcePhone: incoming.phone,
+          sourceType: 'whatsapp',
+          sourceKeyword: roadBlockDetection.intentKey,
+          sourceMessage: incoming.rawText,
+        })
+
+        const { error: interdictionEventError } = await supabaseAdmin
+          .from('events')
+          .insert({
+            phone: incoming.phone,
+            raw_text: incoming.rawText,
+            event_type: 'interdicao',
+            parsed_data: {
+              event_type: 'interdicao',
+              location: roadBlockDetection.road.name,
+              destination: null,
+              priority: 'alta',
+              details: `Via indisponivel: ${roadBlockDetection.road.name}`,
+              source_keyword: roadBlockDetection.intentKey,
+              source_type: 'whatsapp',
+            },
+          })
+
+        if (interdictionEventError) {
+          console.error(`${LOG_PREFIX} save_interdiction_event_error`, interdictionEventError)
+        }
+
+        const replyText =
+          `Trecho indisponivel identificado em ${roadBlockDetection.road.name}. ` +
+          'Rota recalculada com sucesso.'
+
+        try {
+          const sendResult = await sendWhatsAppText(incoming.phone, replyText)
+          console.log(`${LOG_PREFIX} waha_send_result`, {
+            kind: 'road_block_ack',
+            phone: incoming.phone,
+            roadId: roadBlockDetection.road.id,
+            sendResult,
+          })
+        } catch (error) {
+          console.error(`${LOG_PREFIX} waha_send_error`, {
+            kind: 'road_block_ack',
+            phone: incoming.phone,
+            roadId: roadBlockDetection.road.id,
+            error: errorMessage(error),
+          })
+        }
+
+        return NextResponse.json(
+          {
+            ok: true,
+            handled: true,
+            roadBlockRegistered: true,
+            roadId: roadBlockDetection.road.id,
+          },
+          { status: 200 }
+        )
+      } catch (error) {
+        console.error(`${LOG_PREFIX} road_block_register_error`, {
+          error: errorMessage(error),
+          roadId: roadBlockDetection.road.id,
+          phone: incoming.phone,
+        })
+      }
     }
 
     let parsedEvent: ParsedEvent

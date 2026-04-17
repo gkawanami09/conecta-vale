@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useRealtimeLocation, type LocationStatus } from '@/hooks/useRealtimeLocation'
@@ -12,6 +12,17 @@ const RouteMap = dynamic(() => import('@/components/RouteMap'), {
 type RouteDeviationState = {
   isOffRoute: boolean
   distanceMeters: number | null
+}
+
+type ActiveBlock = {
+  roadId: string
+  roadName: string
+  blockedAt: string | null
+  updatedAt: string | null
+  sourcePhone: string | null
+  sourceType: string | null
+  sourceKeyword: string | null
+  sourceMessage: string | null
 }
 
 function statusLabel(status: LocationStatus) {
@@ -52,6 +63,7 @@ export default function RotaClient() {
     isOffRoute: false,
     distanceMeters: null,
   })
+  const [activeBlocks, setActiveBlocks] = useState<ActiveBlock[]>([])
 
   const destination = useMemo(() => {
     const destLng = Number(searchParams.get('destLng'))
@@ -73,7 +85,43 @@ export default function RotaClient() {
     }
   }, [searchParams])
 
-  const routeKey = `${destination.end[0]}:${destination.end[1]}`
+  const blockedRoadIds = useMemo(
+    () => activeBlocks.map((block) => block.roadId),
+    [activeBlocks]
+  )
+  const blockedHash = blockedRoadIds.sort().join('|')
+  const routeKey = `${destination.end[0]}:${destination.end[1]}:${blockedHash}`
+
+  const loadBlocks = useCallback(async () => {
+    try {
+      const response = await fetch('/api/road-blocks', { cache: 'no-store' })
+      const data = (await response.json()) as {
+        ok: boolean
+        blocks?: ActiveBlock[]
+        error?: string
+      }
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Falha ao carregar bloqueios')
+      }
+
+      setActiveBlocks(data.blocks ?? [])
+    } catch (fetchError) {
+      console.warn('[rota-client] load_blocks_warn', fetchError)
+    }
+  }, [])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void loadBlocks()
+    }, 15000)
+
+    void loadBlocks()
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [loadBlocks])
 
   function handleRecenter() {
     if (!position) return
@@ -92,6 +140,7 @@ export default function RotaClient() {
         recenterTick={recenterTick}
         autoFollow={isAutoFollow}
         heading={heading}
+        routeRefreshKey={blockedHash}
         onMapInteraction={() => setIsAutoFollow(false)}
         onRouteDeviationChange={setDeviation}
       />
@@ -147,7 +196,7 @@ export default function RotaClient() {
         </div>
 
         {!position && showLocationHint && !currentError && (
-          <div className='pointer-events-auto absolute bottom-4 left-3 right-24 rounded-2xl border border-white/60 bg-white/92 px-3.5 py-3 shadow-xl backdrop-blur sm:left-4 sm:right-[180px] sm:max-w-md'>
+          <div className='pointer-events-auto absolute bottom-[174px] left-3 right-24 rounded-2xl border border-white/60 bg-white/92 px-3.5 py-3 shadow-xl backdrop-blur sm:left-4 sm:right-[180px] sm:max-w-md'>
             <div className='flex items-start justify-between gap-3'>
               <div>
                 <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[#384880]'>
