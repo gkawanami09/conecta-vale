@@ -35,6 +35,19 @@ type MapViewportControllerProps = {
   autoFollow: boolean
 }
 
+type RouteApiResponse = {
+  error?: string
+  features?: Array<{
+    geometry?: {
+      coordinates?: [number, number][]
+    }
+  }>
+  metadata?: {
+    provider?: string
+    routeMode?: string
+  }
+}
+
 const EARTH_RADIUS_METERS = 6371000
 const OFF_ROUTE_THRESHOLD_METERS = 45
 
@@ -128,32 +141,34 @@ function MapViewportController({
   autoFollow,
 }: MapViewportControllerProps) {
   const map = useMap()
-  const didInitialFitRef = useRef(false)
+  const didInitialCenterRef = useRef(false)
+  const didFirstRouteFitRef = useRef(false)
   const lastFollowRef = useRef<{
     ts: number
     point: [number, number]
   } | null>(null)
 
   useEffect(() => {
-    if (routeCoords.length > 1 && !didInitialFitRef.current) {
+    if (routeCoords.length > 1 && !didFirstRouteFitRef.current) {
       map.fitBounds(routeCoords, {
         padding: [56, 56],
         maxZoom: 16,
       })
-      didInitialFitRef.current = true
+      didFirstRouteFitRef.current = true
+      didInitialCenterRef.current = true
       return
     }
 
-    if (!didInitialFitRef.current && currentPositionLatLng) {
+    if (didInitialCenterRef.current) return
+
+    if (currentPositionLatLng) {
       map.flyTo(currentPositionLatLng, 15, { duration: 0.9 })
-      didInitialFitRef.current = true
+      didInitialCenterRef.current = true
       return
     }
 
-    if (!didInitialFitRef.current) {
-      map.flyTo(endLatLng, 15, { duration: 0.9 })
-      didInitialFitRef.current = true
-    }
+    map.flyTo(endLatLng, 15, { duration: 0.9 })
+    didInitialCenterRef.current = true
   }, [map, routeCoords, currentPositionLatLng, endLatLng])
 
   useEffect(() => {
@@ -188,6 +203,12 @@ function MapViewportController({
   return null
 }
 
+function normalizeErrorMessage(value: unknown) {
+  if (value instanceof Error && value.message) return value.message
+  if (typeof value === 'string' && value.trim()) return value
+  return 'Nao foi possivel carregar a rota.'
+}
+
 export default function RouteMap({
   currentPosition,
   end,
@@ -201,6 +222,8 @@ export default function RouteMap({
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [retryNonce, setRetryNonce] = useState(0)
+  const [retryCount, setRetryCount] = useState(0)
   const routeRequestKeyRef = useRef<string | null>(null)
   const routeFetchInFlightRef = useRef(false)
 
@@ -211,7 +234,10 @@ export default function RouteMap({
   const endLatLng = useMemo<[number, number]>(() => [end[1], end[0]], [end])
 
   const initialCenter: [number, number] = currentPositionLatLng
-    ? [(currentPositionLatLng[0] + endLatLng[0]) / 2, (currentPositionLatLng[1] + endLatLng[1]) / 2]
+    ? [
+        (currentPositionLatLng[0] + endLatLng[0]) / 2,
+        (currentPositionLatLng[1] + endLatLng[1]) / 2,
+      ]
     : endLatLng
 
   const headingDegrees =
@@ -220,9 +246,9 @@ export default function RouteMap({
   const routeStart = useMemo<[number, number] | null>(() => {
     if (!currentPosition) return null
 
-    // Reduz recálculo excessivo e evita oscilação por ruído de GPS.
-    const lng = Number(currentPosition[0].toFixed(5))
-    const lat = Number(currentPosition[1].toFixed(5))
+    // Reduces noisy GPS jitter and avoids excessive route recalculation.
+    const lng = Number(currentPosition[0].toFixed(4))
+    const lat = Number(currentPosition[1].toFixed(4))
     return [lng, lat]
   }, [currentPosition])
 
@@ -255,16 +281,17 @@ export default function RouteMap({
   useEffect(() => {
     if (!routeStart) return
 
-    const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}|${routeRefreshKey}`
-    if (routeRequestKeyRef.current === requestKey && routeCoords.length > 1) return
+    const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}|${routeRefreshKey}|${retryNonce}`
+
+    if (routeRequestKeyRef.current === requestKey) return
     if (routeFetchInFlightRef.current) return
 
     async function fetchRoute() {
-      try {
-        routeFetchInFlightRef.current = true
-        setLoading(true)
-        setError(null)
+      routeFetchInFlightRef.current = true
+      routeRequestKeyRef.current = requestKey
+      setLoading(true)
 
+      try {
         const response = await fetch('/api/route', {
           method: 'POST',
           headers: {
@@ -273,28 +300,36 @@ export default function RouteMap({
           body: JSON.stringify({ start: routeStart, end }),
         })
 
-        const data = await response.json()
+        const rawText = await response.text()
+        let data: RouteApiResponse | null = null
+
+        if (rawText) {
+          try {
+            data = JSON.parse(rawText) as RouteApiResponse
+          } catch {
+            data = null
+          }
+        }
 
         if (!response.ok) {
-          throw new Error(data?.error || 'Erro ao buscar rota')
+          throw new Error(data?.error || `Erro ao buscar rota (${response.status})`)
         }
 
         const coordinates = data?.features?.[0]?.geometry?.coordinates
-
-        if (!coordinates || !Array.isArray(coordinates)) {
+        if (!Array.isArray(coordinates) || coordinates.length < 2) {
           throw new Error('Rota invalida recebida da API')
         }
 
-        // ORS retorna [lng, lat], Leaflet usa [lat, lng]
         const leafletCoords: [number, number][] = coordinates.map(
-          ([lng, lat]: [number, number]) => [lat, lng]
+          ([lng, lat]) => [lat, lng]
         )
 
-        routeRequestKeyRef.current = requestKey
         setRouteCoords(leafletCoords)
-      } catch (err) {
-        console.error('[route-map] fetch_route_error', err)
-        setError('Nao foi possivel carregar a rota.')
+        setError(null)
+        setRetryCount(0)
+      } catch (fetchError) {
+        console.error('[route-map] fetch_route_error', fetchError)
+        setError(normalizeErrorMessage(fetchError))
       } finally {
         routeFetchInFlightRef.current = false
         setLoading(false)
@@ -302,14 +337,21 @@ export default function RouteMap({
     }
 
     void fetchRoute()
-  }, [
-    routeStart,
-    end,
-    routeRefreshKey,
-    routeCoords.length,
-    currentPositionLatLng,
-    endLatLng,
-  ])
+  }, [routeStart, end, routeRefreshKey, retryNonce])
+
+  useEffect(() => {
+    if (!error || !routeStart) return
+    if (retryCount >= 2) return
+
+    const retryTimer = window.setTimeout(() => {
+      setRetryCount((value) => value + 1)
+      setRetryNonce((value) => value + 1)
+    }, 2500)
+
+    return () => {
+      window.clearTimeout(retryTimer)
+    }
+  }, [error, routeStart, retryCount])
 
   useEffect(() => {
     if (!currentPositionLatLng || routeCoords.length < 2) {
@@ -374,7 +416,6 @@ export default function RouteMap({
             }}
           />
         )}
-
       </MapContainer>
 
       {loading && (
@@ -384,7 +425,7 @@ export default function RouteMap({
       )}
 
       {error && (
-        <div className='pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2 text-xs font-medium text-rose-700 shadow-sm sm:left-1/2 sm:right-auto sm:w-[420px] sm:-translate-x-1/2 sm:text-sm'>
+        <div className='pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl border border-rose-200 bg-rose-50/95 px-3 py-2 text-xs font-medium text-rose-700 shadow-sm sm:left-1/2 sm:right-auto sm:w-[480px] sm:-translate-x-1/2 sm:text-sm'>
           {error}
         </div>
       )}
