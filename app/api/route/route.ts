@@ -28,9 +28,11 @@ type RouteMode =
   | 'avoid_polygons'
   | 'detour_fallback'
   | 'detour_refined'
+  | 'detour_refined_no_avoid'
   | 'default_fallback'
   | 'osrm_only'
   | 'osrm_fallback'
+  | 'osrm_refined'
 
 type RouteCandidate = {
   data: RouteGeoJson
@@ -51,7 +53,8 @@ const EARTH_RADIUS_METERS = 6371000
 const POINT_BLOCK_ROUTE_MIN_RADIUS_METERS = 25
 const POINT_BLOCK_ROUTE_PADDING_METERS = 8
 const ROAD_BLOCK_PROXIMITY_THRESHOLD_METERS = 35
-const MAX_REFINED_DETOUR_ATTEMPTS = 24
+const MAX_REFINED_DETOUR_ATTEMPTS = 32
+const MAX_OSRM_REFINED_ATTEMPTS = 14
 
 function isValidCoord(coord: [number, number]) {
   const [lng, lat] = coord
@@ -202,6 +205,12 @@ function metersToDegreesLng(meters: number, lat: number) {
   return meters / metersPerDegreeLng
 }
 
+function distanceBetweenCoordsMeters(a: [number, number], b: [number, number]) {
+  const aMeters = lngLatToMeters(a)
+  const bMeters = lngLatToMeters(b)
+  return Math.hypot(aMeters.x - bMeters.x, aMeters.y - bMeters.y)
+}
+
 function getPointBlockEffectiveRadius(radiusMeters: number | null) {
   if (typeof radiusMeters !== 'number' || !Number.isFinite(radiusMeters)) {
     return POINT_BLOCK_ROUTE_MIN_RADIUS_METERS
@@ -276,6 +285,11 @@ function buildRefinedDetourCoordinates(
 ) {
   const routeCandidates: [number, number][][] = []
   const routeKeys = new Set<string>()
+  const pointWaypointGroups: Array<{
+    blockId: string
+    nearRing: [number, number][]
+    farRing: [number, number][]
+  }> = []
 
   function addCandidate(waypoints: [number, number][]) {
     const coordinates = [startCoord, ...waypoints, endCoord]
@@ -286,6 +300,34 @@ function buildRefinedDetourCoordinates(
     if (routeKeys.has(key)) return
     routeKeys.add(key)
     routeCandidates.push(coordinates)
+  }
+
+  function buildRing(
+    centerLng: number,
+    centerLat: number,
+    offsetMeters: number
+  ) {
+    const points: [number, number][] = []
+    const bearings = [0, 45, 90, 135, 180, 225, 270, 315]
+
+    for (const bearingDeg of bearings) {
+      const angle = (bearingDeg * Math.PI) / 180
+      const deltaLng = metersToDegreesLng(Math.cos(angle) * offsetMeters, centerLat)
+      const deltaLat = metersToDegreesLat(Math.sin(angle) * offsetMeters)
+      const waypoint: [number, number] = [centerLng + deltaLng, centerLat + deltaLat]
+      if (!isValidCoord(waypoint)) continue
+      points.push(waypoint)
+    }
+
+    return points
+  }
+
+  function cardinalFromRing(ring: [number, number][]) {
+    if (ring.length >= 8) {
+      return [ring[0], ring[2], ring[4], ring[6]]
+    }
+
+    return ring.slice(0, Math.min(4, ring.length))
   }
 
   for (const block of activeBlocks) {
@@ -300,31 +342,76 @@ function buildRefinedDetourCoordinates(
     }
 
     const radius = getPointBlockEffectiveRadius(block.blockRadiusMeters)
-    const offsetMeters = Math.max(150, radius * 2.4)
-    const pointRing: [number, number][] = []
-    const bearings = [0, 45, 90, 135, 180, 225, 270, 315]
-
-    for (const bearingDeg of bearings) {
-      const angle = (bearingDeg * Math.PI) / 180
-      const deltaLng = metersToDegreesLng(Math.cos(angle) * offsetMeters, block.blockLat)
-      const deltaLat = metersToDegreesLat(Math.sin(angle) * offsetMeters)
-      const waypoint: [number, number] = [block.blockLng + deltaLng, block.blockLat + deltaLat]
-      if (!isValidCoord(waypoint)) continue
-      pointRing.push(waypoint)
-    }
+    const nearRing = buildRing(
+      block.blockLng,
+      block.blockLat,
+      Math.max(130, radius * 2.6)
+    )
+    const farRing = buildRing(
+      block.blockLng,
+      block.blockLat,
+      Math.max(240, radius * 4.6)
+    )
+    const pointRing = nearRing
 
     for (const waypoint of pointRing) {
       addCandidate([waypoint])
     }
 
-    if (pointRing.length >= 2) {
-      for (let index = 0; index < pointRing.length; index += 1) {
-        const current = pointRing[index]
-        const adjacent = pointRing[(index + 1) % pointRing.length]
-        const opposite = pointRing[(index + Math.floor(pointRing.length / 2)) % pointRing.length]
+    for (const waypoint of cardinalFromRing(farRing)) {
+      addCandidate([waypoint])
+    }
 
-        addCandidate([current, adjacent])
+    if (pointRing.length >= 8) {
+      for (let index = 0; index < 4; index += 1) {
+        const current = pointRing[index]
+        const opposite = pointRing[index + 4]
         addCandidate([current, opposite])
+      }
+    }
+
+    if (nearRing.length > 0) {
+      pointWaypointGroups.push({
+        blockId: block.roadId,
+        nearRing,
+        farRing: farRing.length > 0 ? farRing : nearRing,
+      })
+    }
+  }
+
+  if (pointWaypointGroups.length >= 2) {
+    for (let firstIndex = 0; firstIndex < pointWaypointGroups.length; firstIndex += 1) {
+      for (
+        let secondIndex = firstIndex + 1;
+        secondIndex < pointWaypointGroups.length;
+        secondIndex += 1
+      ) {
+        const firstGroup = pointWaypointGroups[firstIndex]
+        const secondGroup = pointWaypointGroups[secondIndex]
+        if (firstGroup.blockId === secondGroup.blockId) continue
+
+        const firstOptions = cardinalFromRing(firstGroup.farRing)
+        const secondOptions = cardinalFromRing(secondGroup.farRing)
+
+        for (const firstWaypoint of firstOptions) {
+          for (const secondWaypoint of secondOptions) {
+            const firstOrderDistance =
+              distanceBetweenCoordsMeters(startCoord, firstWaypoint) +
+              distanceBetweenCoordsMeters(firstWaypoint, secondWaypoint) +
+              distanceBetweenCoordsMeters(secondWaypoint, endCoord)
+
+            const secondOrderDistance =
+              distanceBetweenCoordsMeters(startCoord, secondWaypoint) +
+              distanceBetweenCoordsMeters(secondWaypoint, firstWaypoint) +
+              distanceBetweenCoordsMeters(firstWaypoint, endCoord)
+
+            if (firstOrderDistance <= secondOrderDistance) {
+              addCandidate([firstWaypoint, secondWaypoint])
+            } else {
+              addCandidate([secondWaypoint, firstWaypoint])
+            }
+          }
+        }
       }
     }
   }
@@ -459,6 +546,9 @@ export async function POST(req: NextRequest) {
     const avoidPolygons = buildAvoidPolygonsFromBlocks(activeBlocks)
     const detourWaypoints = buildDetourWaypointsFromBlocks(activeBlocks)
     const hasActiveBlocks = activeBlocks.length > 0
+    const refinedCandidates = hasActiveBlocks
+      ? buildRefinedDetourCoordinates(startCoord, endCoord, activeBlocks)
+      : []
 
     let selectedCandidate: RouteCandidate | null = null
     let selectedViolations: BlockRouteViolation[] = []
@@ -546,13 +636,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (!selectedCandidate && hasActiveBlocks) {
-        const refinedCandidates = buildRefinedDetourCoordinates(
-          startCoord,
-          endCoord,
-          activeBlocks
-        )
-
+      if (!selectedCandidate && hasActiveBlocks && refinedCandidates.length > 0) {
         for (const candidateCoordinates of refinedCandidates) {
           try {
             const orsRefinedData = await requestDirectionsOrs(orsApiKey, {
@@ -569,6 +653,28 @@ export async function POST(req: NextRequest) {
             routeProviderErrors.push({
               provider: 'ors',
               routeMode: 'detour_refined',
+              error,
+            })
+          }
+        }
+      }
+
+      if (!selectedCandidate && hasActiveBlocks && refinedCandidates.length > 0) {
+        for (const candidateCoordinates of refinedCandidates) {
+          try {
+            const orsRefinedNoAvoidData = await requestDirectionsOrs(orsApiKey, {
+              coordinates: candidateCoordinates,
+            })
+            const accepted = evaluateCandidate({
+              data: orsRefinedNoAvoidData,
+              provider: 'ors',
+              routeMode: 'detour_refined_no_avoid',
+            })
+            if (accepted) break
+          } catch (error) {
+            routeProviderErrors.push({
+              provider: 'ors',
+              routeMode: 'detour_refined_no_avoid',
               error,
             })
           }
@@ -617,6 +723,30 @@ export async function POST(req: NextRequest) {
           routeMode: hasActiveBlocks ? 'osrm_fallback' : 'osrm_only',
           error,
         })
+      }
+    }
+
+    if (!selectedCandidate && hasActiveBlocks && refinedCandidates.length > 0) {
+      const osrmRefinedCandidates = refinedCandidates.slice(0, MAX_OSRM_REFINED_ATTEMPTS)
+
+      for (const candidateCoordinates of osrmRefinedCandidates) {
+        try {
+          const osrmRefinedData = await requestDirectionsOsrm({
+            coordinates: candidateCoordinates,
+          })
+          const accepted = evaluateCandidate({
+            data: osrmRefinedData,
+            provider: 'osrm',
+            routeMode: 'osrm_refined',
+          })
+          if (accepted) break
+        } catch (error) {
+          routeProviderErrors.push({
+            provider: 'osrm',
+            routeMode: 'osrm_refined',
+            error,
+          })
+        }
       }
     }
 
