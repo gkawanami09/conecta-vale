@@ -394,34 +394,6 @@ export default function ManagerDashboardClient({
             </button>
           </div>
 
-          <div className='absolute left-3 top-[52px] z-[1000] flex max-w-[95%] flex-wrap gap-2'>
-            <button
-              onClick={startAddBlock}
-              className='rounded-lg border border-rose-200 bg-rose-50/95 px-3 py-1.5 text-xs font-semibold text-rose-800 shadow'
-            >
-              Adicionar bloqueio
-            </button>
-            <button
-              onClick={startAddFixedPoint}
-              className='rounded-lg border border-emerald-200 bg-emerald-50/95 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow'
-            >
-              Adicionar ponto fixo
-            </button>
-            <button
-              onClick={cancelEditAction}
-              disabled={editMode === 'none'}
-              className='rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow disabled:cursor-not-allowed disabled:opacity-60'
-            >
-              Cancelar acao
-            </button>
-            <button
-              onClick={applyEditAction}
-              disabled={editMode === 'none' || actionLoading}
-              className='rounded-lg border border-[#006341] bg-[#006341] px-3 py-1.5 text-xs font-semibold text-white shadow disabled:cursor-not-allowed disabled:opacity-60'
-            >
-              {actionLoading ? 'Aplicando...' : 'Aplicar'}
-            </button>
-          </div>
         </div>
 
         <aside className='border-t border-white/40 bg-[#f8fbf9] lg:h-full lg:overflow-y-auto lg:border-l lg:border-t-0'>
