@@ -24,6 +24,9 @@ export type MarcoInput = {
   text?: string | null
   caption?: string | null
   messageType?: string | null
+  session?: string | null
+  chatId?: string | null
+  messageId?: string | null
   audioUrl?: string | null
   audioUrls?: string[]
   audioBase64?: string | null
@@ -175,6 +178,59 @@ function resolveMediaUrl(url: string) {
   return `${base}/api/${url}`
 }
 
+function buildWahaApiBaseUrl() {
+  const normalized = WAHA_BASE_URL.trim().replace(/\/+$/, '')
+  return normalized.endsWith('/api') ? normalized : `${normalized}/api`
+}
+
+async function getMessageMediaByIdFromWaha(input: {
+  session?: string | null
+  chatId?: string | null
+  messageId?: string | null
+}) {
+  const session = input.session?.trim()
+  const chatId = input.chatId?.trim()
+  const messageId = input.messageId?.trim()
+
+  if (!session || !chatId || !messageId) return null
+
+  const endpoint =
+    `${buildWahaApiBaseUrl()}/${encodeURIComponent(session)}` +
+    `/chats/${encodeURIComponent(chatId)}` +
+    `/messages/${encodeURIComponent(messageId)}?downloadMedia=true`
+
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      'X-Api-Key': WAHA_API_KEY,
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    console.error('[marco] waha_get_message_by_id_error', {
+      status: response.status,
+      endpoint,
+    })
+    return null
+  }
+
+  const data = (await response.json()) as Record<string, unknown>
+  const media = (data.media ?? null) as Record<string, unknown> | null
+  const mediaUrl =
+    (typeof media?.url === 'string' ? media.url : null) ??
+    (typeof data.url === 'string' ? data.url : null)
+  const mimeType =
+    (typeof media?.mimetype === 'string' ? media.mimetype : null) ??
+    (typeof data.mimetype === 'string' ? data.mimetype : null)
+
+  return {
+    mediaUrl,
+    mimeType,
+  }
+}
+
 async function fetchMediaFromUrl(url: string, withApiKey: boolean) {
   const absoluteUrl = resolveMediaUrl(url)
   const response = await fetch(absoluteUrl, {
@@ -280,6 +336,9 @@ async function transcribeAudio(input: {
   audioUrls?: string[]
   audioBase64?: string | null
   mimeType?: string | null
+  session?: string | null
+  chatId?: string | null
+  messageId?: string | null
 }) {
   if (!OPENAI_API_KEY) return null
 
@@ -298,6 +357,21 @@ async function transcribeAudio(input: {
     const media = await downloadMedia(urls)
     const byUrl = await transcribeAudioBuffer(media.buffer, input.mimeType ?? media.mimeType)
     if (byUrl) return byUrl
+  }
+
+  const fromMessageById = await getMessageMediaByIdFromWaha({
+    session: input.session,
+    chatId: input.chatId,
+    messageId: input.messageId,
+  })
+
+  if (fromMessageById?.mediaUrl) {
+    const media = await downloadMedia([fromMessageById.mediaUrl])
+    const byWahaMessage = await transcribeAudioBuffer(
+      media.buffer,
+      input.mimeType ?? fromMessageById.mimeType ?? media.mimeType
+    )
+    if (byWahaMessage) return byWahaMessage
   }
 
   return null
@@ -549,7 +623,8 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
   const hasAudioPayload =
     Boolean(input.audioUrl) ||
     Boolean(input.audioBase64) ||
-    Boolean(input.audioUrls && input.audioUrls.length > 0)
+    Boolean(input.audioUrls && input.audioUrls.length > 0) ||
+    ((input.messageType ?? '').includes('audio') && Boolean(input.session && input.chatId && input.messageId))
 
   if (hasAudioPayload) {
     try {
@@ -558,6 +633,9 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
         audioUrls: input.audioUrls,
         audioBase64: input.audioBase64,
         mimeType: input.mediaMimeType,
+        session: input.session,
+        chatId: input.chatId,
+        messageId: input.messageId,
       })
       transcriptionStatus = transcription ? 'success' : 'failed'
     } catch (error) {
