@@ -385,6 +385,7 @@ export default function RouteMap({
         onRouteMetadataChange?.(data?.metadata ?? null)
       } catch (fetchError) {
         console.error('[route-map] fetch_route_error', fetchError)
+        setRouteCoords([])
         setError(normalizeErrorMessage(fetchError))
         onRouteMetadataChange?.(null)
       } finally {

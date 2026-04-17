@@ -600,15 +600,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const fallbackCandidateWithViolations = bestCandidateWithViolations as
-      | { candidate: RouteCandidate; violations: BlockRouteViolation[] }
-      | null
-    if (!selectedCandidate && hasActiveBlocks && fallbackCandidateWithViolations) {
-      selectedCandidate = fallbackCandidateWithViolations.candidate
-      selectedViolations = fallbackCandidateWithViolations.violations
-    }
-
     if (!selectedCandidate) {
+      const candidateWithViolations = bestCandidateWithViolations as
+        | { candidate: RouteCandidate; violations: BlockRouteViolation[] }
+        | null
+
+      if (hasActiveBlocks && candidateWithViolations !== null) {
+        const violatedBlocks = candidateWithViolations.violations.map(
+          (item: BlockRouteViolation) => ({
+            roadId: item.roadId,
+            roadName: item.roadName,
+            blockType: item.blockType,
+            distanceMeters: Math.round(item.distanceMeters),
+            thresholdMeters: Math.round(item.thresholdMeters),
+          })
+        )
+
+        console.warn('[route-api] sem_rota_segura_com_bloqueios', {
+          violatedBlocks,
+          routeProviderErrors,
+        })
+
+        return NextResponse.json(
+          {
+            error:
+              'Nao foi possivel gerar uma rota segura sem cruzar area interditada. Aguarde liberacao de bloqueio ou ajuste operacional.',
+            metadata: {
+              provider: null,
+              routeMode: 'strict_blocked',
+              blocksApplied: false,
+              degradedForActiveBlocks: true,
+              blockViolationCount: violatedBlocks.length,
+              violatedBlocks,
+            },
+          },
+          { status: 409 }
+        )
+      }
+
       console.error('Erro rota ORS+OSRM:', routeProviderErrors)
       return NextResponse.json(
         { error: 'Erro ao buscar rota nos provedores disponiveis' },
