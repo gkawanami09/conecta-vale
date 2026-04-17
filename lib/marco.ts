@@ -343,7 +343,9 @@ function fallbackInterpretation(input: {
     roadText: roadDetection?.road.name ?? null,
     roadId: roadDetection?.road.id ?? null,
     shouldBlockRoad: Boolean(roadDetection),
-    shouldSendRoute: Boolean(destination || isRouteKeyword(input.combinedText)),
+    shouldSendRoute:
+      intent === 'route_request' ||
+      (isRouteKeyword(input.combinedText) && Boolean(destination)),
     asksListBlocks: asksList,
     asksClearBlocks: asksClear,
     forwardTarget,
@@ -551,10 +553,9 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
         : 'desconhecido'
 
     const wantsRoute =
-      Boolean(ai.should_send_route) ||
       safeIntent === 'route_request' ||
-      Boolean(destinationFromAi || destinationFromText) ||
-      isRouteKeyword(combinedText)
+      (Boolean(ai.should_send_route) && safeIntent !== 'external_forward_request') ||
+      (isRouteKeyword(combinedText) && Boolean(destinationFromAi || destinationFromText))
 
     const wantsBlock =
       Boolean(ai.should_block_road) ||
