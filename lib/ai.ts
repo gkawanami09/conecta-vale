@@ -1,7 +1,5 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
-
-const apiKey = process.env.GEMINI_API_KEY
-const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null
+const apiKey = process.env.OPENAI_API_KEY
+const model = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini'
 
 export type ParsedEvent = {
   event_type: 'interdicao' | 'solicitacao_rota' | 'pedido_apoio' | 'status' | 'desconhecido'
@@ -22,14 +20,12 @@ function unknownEvent(text: string): ParsedEvent {
 }
 
 export async function parseOperationalMessage(text: string): Promise<ParsedEvent> {
-  if (!genAI) {
+  if (!apiKey) {
     console.warn(
-      '[ai] GEMINI_API_KEY nao encontrada. Usando fallback de classificacao.'
+      '[ai] OPENAI_API_KEY nao encontrada. Usando fallback de classificacao.'
     )
     return unknownEvent(text)
   }
-
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const prompt = `
 Voce e o Marco, um assistente operacional logistico.
@@ -62,10 +58,28 @@ Formato obrigatorio:
 Mensagem:
 """${text}"""
 `
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      input: prompt,
+      max_output_tokens: 400,
+    }),
+  })
 
-  const result = await model.generateContent(prompt)
-  const response = await result.response
-  const raw = response.text().trim()
+  if (!response.ok) {
+    console.error('[ai] openai_request_error', await response.text())
+    return unknownEvent(text)
+  }
+
+  const data = (await response.json()) as {
+    output_text?: string
+  }
+  const raw = (data.output_text ?? '').trim()
 
   const cleaned = raw
     .replace(/```json/g, '')

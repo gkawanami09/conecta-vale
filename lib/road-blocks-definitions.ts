@@ -35,9 +35,7 @@ export const MONITORED_ROADS: MonitoredRoad[] = [
       'jose cordeiro',
       'r jose cordeiro',
       'r. jose cordeiro',
-      'rua jose cordeiro',
-      'josé cordeiro',
-      'r. josé cordeiro',
+      'joose cordeiro',
     ],
     blockedSegment: [
       [-21.2819, -50.3347],
@@ -86,13 +84,13 @@ export const ROAD_BLOCK_INTENT_PATTERNS: Array<{
 }> = [
   { key: 'interdicao', regex: /\binterditad[ao]s?\b/ },
   { key: 'bloqueio', regex: /\bbloquei[oa]s?\b|\bbloquead[ao]s?\b/ },
-  { key: 'manutencao', regex: /\bmanutenc[aã]o\b/ },
+  { key: 'manutencao', regex: /\bmanutencao\b/ },
   { key: 'obra', regex: /\bobras?\b/ },
   { key: 'sem_acesso', regex: /\bsem\s+acesso\b/ },
   { key: 'sem_passagem', regex: /\bsem\s+passagem\b/ },
   { key: 'via_fechada', regex: /\bvia\s+fechada\b|\bfechad[ao]s?\b/ },
-  { key: 'transito_impedido', regex: /\btransito\s+impedido\b|\btr[âa]nsito\s+impedido\b/ },
-  { key: 'nao_passa', regex: /\bnao\s+esta\s+passando\b|\bn[ãa]o\s+est[aá]\s+passando\b/ },
+  { key: 'transito_impedido', regex: /\btransito\s+impedido\b/ },
+  { key: 'nao_passa', regex: /\bnao\s+esta\s+passando\b/ },
 ]
 
 export function normalizeRoadText(value: string) {
@@ -114,14 +112,68 @@ export function getRoadDefinitionsByIds(roadIds: string[]) {
   return MONITORED_ROADS.filter((road) => idSet.has(road.id))
 }
 
+function levenshteinDistance(a: string, b: string) {
+  if (a === b) return 0
+
+  const rows = a.length + 1
+  const cols = b.length + 1
+  const dp: number[][] = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => 0)
+  )
+
+  for (let i = 0; i < rows; i += 1) dp[i][0] = i
+  for (let j = 0; j < cols; j += 1) dp[0][j] = j
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      )
+    }
+  }
+
+  return dp[rows - 1][cols - 1]
+}
+
+function splitTokens(value: string) {
+  return value
+    .split(' ')
+    .map((token) => token.replace(/\./g, ''))
+    .filter((token) => token.length >= 2)
+}
+
+function isCloseToken(aliasToken: string, messageToken: string) {
+  if (aliasToken === messageToken) return true
+  if (Math.abs(aliasToken.length - messageToken.length) > 1) return false
+
+  const maxDistance = aliasToken.length >= 8 ? 2 : 1
+  return levenshteinDistance(aliasToken, messageToken) <= maxDistance
+}
+
+function containsAliasFuzzy(normalizedMessage: string, normalizedAlias: string) {
+  const textTokens = splitTokens(normalizedMessage)
+  const aliasTokens = splitTokens(normalizedAlias)
+
+  if (aliasTokens.length === 0) return false
+
+  return aliasTokens.every((aliasToken) =>
+    textTokens.some((messageToken) => isCloseToken(aliasToken, messageToken))
+  )
+}
+
 export function findMonitoredRoadByAlias(text: string) {
   const normalized = normalizeRoadText(text)
   if (!normalized) return null
 
   for (const road of MONITORED_ROADS) {
-    const hasAlias = road.aliases
-      .map(normalizeRoadText)
-      .some((alias) => alias.length > 0 && normalized.includes(alias))
+    const hasAlias = road.aliases.map(normalizeRoadText).some((alias) => {
+      if (!alias) return false
+      return normalized.includes(alias) || containsAliasFuzzy(normalized, alias)
+    })
+
     if (hasAlias) {
       return road
     }

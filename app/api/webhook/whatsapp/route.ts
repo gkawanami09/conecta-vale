@@ -1,40 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { parseOperationalMessage, type ParsedEvent } from '@/lib/ai'
 import { findDestinationByText } from '@/lib/destinations'
 import {
   activateRoadBlockGlobal,
-  detectRoadBlockMessage,
+  clearAllRoadBlocksGlobal,
+  getActiveRoadBlocksGlobal,
 } from '@/lib/road-blocks'
 import { buildRouteLink } from '@/lib/route-link'
+import { interpretMarcoMessage } from '@/lib/marco'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendWhatsAppText } from '@/lib/whatsapp'
 
 const LOG_PREFIX = '[webhook.whatsapp.waha]'
-
-const ROUTE_KEYWORDS = [
-  'rota',
-  'ir para',
-  'quero ir',
-  'como chegar',
-  'como chego',
-  'me leve',
-  'direcao',
-  'caminho',
-]
-
-const VALID_EVENT_TYPES = new Set<ParsedEvent['event_type']>([
-  'interdicao',
-  'solicitacao_rota',
-  'pedido_apoio',
-  'status',
-  'desconhecido',
-])
-
-const VALID_PRIORITIES = new Set<NonNullable<ParsedEvent['priority']>>([
-  'baixa',
-  'media',
-  'alta',
-])
 
 type JsonObject = Record<string, unknown>
 
@@ -45,103 +21,32 @@ function asString(value: unknown) {
 }
 
 function asObject(value: unknown): JsonObject | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null
-  }
-
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   return value as JsonObject
 }
 
-function normalizeText(value: string) {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+function pickString(source: JsonObject | null, paths: string[][]) {
+  if (!source) return null
 
-function asNullableString(value: unknown) {
-  return asString(value)
-}
-
-function fallbackParsedEvent(rawText: string): ParsedEvent {
-  return {
-    event_type: 'desconhecido',
-    location: null,
-    destination: null,
-    priority: null,
-    details: rawText,
-  }
-}
-
-function sanitizeParsedEvent(
-  parsed: ParsedEvent | null | undefined,
-  rawText: string
-): ParsedEvent {
-  const safeParsed = parsed ?? fallbackParsedEvent(rawText)
-
-  const eventType = VALID_EVENT_TYPES.has(safeParsed.event_type)
-    ? safeParsed.event_type
-    : 'desconhecido'
-
-  const priority =
-    safeParsed.priority && VALID_PRIORITIES.has(safeParsed.priority)
-      ? safeParsed.priority
-      : null
-
-  return {
-    event_type: eventType,
-    location: asNullableString(safeParsed.location),
-    destination: asNullableString(safeParsed.destination),
-    priority,
-    details: asNullableString(safeParsed.details) ?? rawText,
-  }
-}
-
-function resolveDestination(parsed: ParsedEvent, rawText: string) {
-  const candidates = [parsed.destination, parsed.location, parsed.details, rawText]
-
-  for (const candidate of candidates) {
-    const found = findDestinationByText(candidate)
-    if (found) {
-      return {
-        destination: found,
-        sourceText: candidate,
+  for (const path of paths) {
+    let current: unknown = source
+    for (const segment of path) {
+      if (!current || typeof current !== 'object' || Array.isArray(current)) {
+        current = null
+        break
       }
+      current = (current as JsonObject)[segment]
     }
+    const value = asString(current)
+    if (value) return value
   }
 
-  return {
-    destination: null,
-    sourceText: null,
-  }
+  return null
 }
 
-function shouldHandleRouteRequest(
-  parsed: ParsedEvent,
-  rawText: string,
-  destinationFound: boolean
-) {
-  if (parsed.event_type === 'solicitacao_rota') {
-    return { shouldHandle: true, reason: 'ai_event_type' }
-  }
-
-  const normalizedText = normalizeText(rawText)
-  const hasRouteKeyword = ROUTE_KEYWORDS.some((keyword) =>
-    normalizedText.includes(keyword)
-  )
-
-  if (hasRouteKeyword) {
-    return { shouldHandle: true, reason: 'keyword_fallback' }
-  }
-
-  if (parsed.event_type === 'desconhecido' && destinationFound) {
-    return { shouldHandle: true, reason: 'destination_fallback' }
-  }
-
-  return { shouldHandle: false, reason: `event_type_${parsed.event_type}` }
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  return String(error)
 }
 
 function extractIncomingMessage(parsedBody: JsonObject | null) {
@@ -149,21 +54,125 @@ function extractIncomingMessage(parsedBody: JsonObject | null) {
   const source = payload ?? parsedBody
   const textField = asObject(source?.text)
 
+  const messageType =
+    pickString(source, [
+      ['type'],
+      ['message', 'type'],
+      ['payload', 'type'],
+    ]) ?? 'text'
+
+  const mediaUrl = pickString(source, [
+    ['media', 'url'],
+    ['image', 'url'],
+    ['audio', 'url'],
+    ['file', 'url'],
+    ['document', 'url'],
+    ['video', 'url'],
+    ['mediaUrl'],
+    ['url'],
+  ])
+
+  const mimeType = pickString(source, [
+    ['media', 'mimetype'],
+    ['media', 'mimeType'],
+    ['image', 'mimetype'],
+    ['audio', 'mimetype'],
+    ['file', 'mimetype'],
+    ['mimetype'],
+    ['mimeType'],
+  ])
+
+  const caption = pickString(source, [
+    ['caption'],
+    ['image', 'caption'],
+    ['media', 'caption'],
+  ])
+
+  const rawText =
+    asString(source?.body) ??
+    asString(textField?.body) ??
+    asString(source?.text) ??
+    caption
+
+  const isAudio =
+    messageType.includes('audio') ||
+    messageType.includes('ptt') ||
+    (mimeType?.startsWith('audio/') ?? false)
+
+  const isImage =
+    messageType.includes('image') ||
+    (mimeType?.startsWith('image/') ?? false)
+
   return {
     event: asString(parsedBody?.event) ?? 'unknown',
     session: asString(parsedBody?.session),
     phone: asString(source?.from),
-    messageType: asString(source?.type),
+    messageType,
     messageId: asString(source?.id),
     fromMe: typeof source?.fromMe === 'boolean' ? source.fromMe : null,
-    rawText:
-      asString(source?.body) ?? asString(textField?.body) ?? asString(source?.text),
+    rawText,
+    caption,
+    mediaUrl,
+    mimeType,
+    audioUrl: isAudio ? mediaUrl : null,
+    imageUrl: isImage ? mediaUrl : null,
   }
 }
 
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message
-  return String(error)
+async function saveIncomingMessage(phone: string | null, text: string | null, payload: JsonObject) {
+  try {
+    const { error } = await supabaseAdmin.from('messages').insert({
+      phone,
+      raw_text: text,
+      payload,
+    })
+
+    if (error) {
+      console.error(`${LOG_PREFIX} save_message_error`, error)
+    }
+  } catch (error) {
+    console.error(`${LOG_PREFIX} save_message_exception`, {
+      error: errorMessage(error),
+    })
+  }
+}
+
+async function saveEvent(phone: string, rawText: string | null, eventType: string, parsedData: JsonObject) {
+  try {
+    const { error } = await supabaseAdmin.from('events').insert({
+      phone,
+      raw_text: rawText,
+      event_type: eventType,
+      parsed_data: parsedData,
+    })
+
+    if (error) {
+      console.error(`${LOG_PREFIX} save_event_error`, error)
+    }
+  } catch (error) {
+    console.error(`${LOG_PREFIX} save_event_exception`, {
+      error: errorMessage(error),
+    })
+  }
+}
+
+async function safeReply(phone: string, kind: string, text: string, metadata?: JsonObject) {
+  try {
+    const sendResult = await sendWhatsAppText(phone, text)
+    console.log(`${LOG_PREFIX} waha_send_result`, {
+      kind,
+      phone,
+      sendResult,
+      ...(metadata ?? {}),
+    })
+  } catch (error) {
+    console.error(`${LOG_PREFIX} waha_send_error`, {
+      kind,
+      phone,
+      error: errorMessage(error),
+      ...(metadata ?? {}),
+    })
+  }
 }
 
 export async function GET() {
@@ -175,19 +184,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const rawBody = await req.text()
-
     console.log(`${LOG_PREFIX} payload_raw`, rawBody)
 
     if (!rawBody) {
-      console.warn(`${LOG_PREFIX} empty_body`)
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
     let parsedBody: JsonObject | null = null
 
     try {
-      const parsed = JSON.parse(rawBody) as unknown
-      parsedBody = asObject(parsed)
+      parsedBody = asObject(JSON.parse(rawBody) as unknown)
     } catch (error) {
       console.error(`${LOG_PREFIX} invalid_json`, {
         error: errorMessage(error),
@@ -196,269 +202,197 @@ export async function POST(req: NextRequest) {
     }
 
     if (!parsedBody) {
-      console.error(`${LOG_PREFIX} invalid_payload_shape`)
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
-
-    console.log(`${LOG_PREFIX} payload_json`, parsedBody)
 
     const incoming = extractIncomingMessage(parsedBody)
 
     console.log(`${LOG_PREFIX} message_received`, {
       event: incoming.event,
       session: incoming.session,
-      messageId: incoming.messageId,
       phone: incoming.phone,
       messageType: incoming.messageType,
+      messageId: incoming.messageId,
       fromMe: incoming.fromMe,
       hasText: Boolean(incoming.rawText),
-      textLength: incoming.rawText?.length ?? 0,
+      hasAudio: Boolean(incoming.audioUrl),
+      hasImage: Boolean(incoming.imageUrl),
+      hasMedia: Boolean(incoming.mediaUrl),
     })
 
-    try {
-      const { error: messageError } = await supabaseAdmin.from('messages').insert({
-        phone: incoming.phone,
-        raw_text: incoming.rawText,
-        payload: parsedBody,
-      })
-
-      if (messageError) {
-        console.error(`${LOG_PREFIX} save_message_error`, messageError)
-      }
-    } catch (error) {
-      console.error(`${LOG_PREFIX} save_message_exception`, {
-        error: errorMessage(error),
-      })
-    }
+    await saveIncomingMessage(incoming.phone, incoming.rawText, parsedBody)
 
     if (!incoming.event.startsWith('message')) {
-      console.log(`${LOG_PREFIX} ignored_non_message_event`, {
-        event: incoming.event,
-      })
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
     if (incoming.fromMe) {
-      console.log(`${LOG_PREFIX} ignored_from_me`, {
-        messageId: incoming.messageId,
-      })
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
-    if (!incoming.phone || !incoming.rawText) {
-      console.log(`${LOG_PREFIX} ignored_missing_phone_or_text`, {
-        phone: incoming.phone,
-        messageType: incoming.messageType,
-      })
+    if (!incoming.phone) {
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
-    const roadBlockDetection = detectRoadBlockMessage(incoming.rawText)
-    if (roadBlockDetection) {
-      console.log(`${LOG_PREFIX} road_block_detected`, {
-        roadId: roadBlockDetection.road.id,
-        roadName: roadBlockDetection.road.name,
-        intentKey: roadBlockDetection.intentKey,
-      })
+    const interpretation = await interpretMarcoMessage({
+      text: incoming.rawText,
+      caption: incoming.caption,
+      messageType: incoming.messageType,
+      audioUrl: incoming.audioUrl,
+      imageUrl: incoming.imageUrl,
+      mediaMimeType: incoming.mimeType,
+    })
 
-      try {
-        await activateRoadBlockGlobal({
-          roadId: roadBlockDetection.road.id,
-          sourcePhone: incoming.phone,
-          sourceType: 'whatsapp',
-          sourceKeyword: roadBlockDetection.intentKey,
-          sourceMessage: incoming.rawText,
-        })
+    console.log(`${LOG_PREFIX} interpreted`, {
+      intent: interpretation.intent,
+      eventType: interpretation.eventType,
+      confidence: interpretation.confidence,
+      roadId: interpretation.roadId,
+      destinationText: interpretation.destinationText,
+      shouldBlockRoad: interpretation.shouldBlockRoad,
+      shouldSendRoute: interpretation.shouldSendRoute,
+      asksListBlocks: interpretation.asksListBlocks,
+      asksClearBlocks: interpretation.asksClearBlocks,
+      source: interpretation.source,
+      hasTranscription: Boolean(interpretation.transcription),
+      hasImageAssessment: Boolean(interpretation.imageAssessment),
+    })
 
-        const { error: interdictionEventError } = await supabaseAdmin
-          .from('events')
-          .insert({
-            phone: incoming.phone,
-            raw_text: incoming.rawText,
-            event_type: 'interdicao',
-            parsed_data: {
-              event_type: 'interdicao',
-              location: roadBlockDetection.road.name,
-              destination: null,
-              priority: 'alta',
-              details: `Via indisponivel: ${roadBlockDetection.road.name}`,
-              source_keyword: roadBlockDetection.intentKey,
-              source_type: 'whatsapp',
-            },
-          })
+    const rawTextForAudit =
+      interpretation.normalizedText || incoming.rawText || incoming.caption || null
 
-        if (interdictionEventError) {
-          console.error(`${LOG_PREFIX} save_interdiction_event_error`, interdictionEventError)
-        }
+    await saveEvent(incoming.phone, rawTextForAudit, interpretation.eventType, {
+      intent: interpretation.intent,
+      confidence: interpretation.confidence,
+      summary: interpretation.summary,
+      destination_text: interpretation.destinationText,
+      road_text: interpretation.roadText,
+      road_id: interpretation.roadId,
+      should_block_road: interpretation.shouldBlockRoad,
+      should_send_route: interpretation.shouldSendRoute,
+      asks_list_blocks: interpretation.asksListBlocks,
+      asks_clear_blocks: interpretation.asksClearBlocks,
+      transcription: interpretation.transcription,
+      image_assessment: interpretation.imageAssessment,
+      source: interpretation.source,
+    })
 
-        const replyText =
-          `Trecho indisponivel identificado em ${roadBlockDetection.road.name}. ` +
-          'Rota recalculada com sucesso.'
+    if (interpretation.asksListBlocks) {
+      const blocks = await getActiveRoadBlocksGlobal()
+      const reply =
+        blocks.length === 0
+          ? 'Nao ha vias indisponiveis no momento.'
+          : `Vias indisponiveis no momento: ${blocks.map((block) => block.roadName).join(', ')}.`
 
-        try {
-          const sendResult = await sendWhatsAppText(incoming.phone, replyText)
-          console.log(`${LOG_PREFIX} waha_send_result`, {
-            kind: 'road_block_ack',
-            phone: incoming.phone,
-            roadId: roadBlockDetection.road.id,
-            sendResult,
-          })
-        } catch (error) {
-          console.error(`${LOG_PREFIX} waha_send_error`, {
-            kind: 'road_block_ack',
-            phone: incoming.phone,
-            roadId: roadBlockDetection.road.id,
-            error: errorMessage(error),
-          })
-        }
+      await safeReply(incoming.phone, 'list_blocks_reply', reply)
+      return NextResponse.json({ ok: true, handled: true }, { status: 200 })
+    }
 
+    if (interpretation.asksClearBlocks) {
+      await clearAllRoadBlocksGlobal()
+      await safeReply(
+        incoming.phone,
+        'clear_blocks_reply',
+        'Bloqueios globais limpos. O roteamento voltou ao estado normal.'
+      )
+      return NextResponse.json({ ok: true, handled: true }, { status: 200 })
+    }
+
+    if (interpretation.shouldBlockRoad) {
+      if (!interpretation.roadId) {
+        await safeReply(
+          incoming.phone,
+          'road_block_clarification_reply',
+          'Entendi a ocorrencia de via indisponivel, mas preciso da rua exata para bloquear no sistema. Informe: Rua Tiradentes, Rua Jose Cordeiro ou Rua Duque de Caxias.'
+        )
         return NextResponse.json(
-          {
-            ok: true,
-            handled: true,
-            roadBlockRegistered: true,
-            roadId: roadBlockDetection.road.id,
-          },
+          { ok: true, handled: true, roadBlockNeedsClarification: true },
           { status: 200 }
         )
-      } catch (error) {
-        console.error(`${LOG_PREFIX} road_block_register_error`, {
-          error: errorMessage(error),
-          roadId: roadBlockDetection.road.id,
-          phone: incoming.phone,
-        })
       }
-    }
 
-    let parsedEvent: ParsedEvent
-
-    try {
-      const aiResult = await parseOperationalMessage(incoming.rawText)
-      parsedEvent = sanitizeParsedEvent(aiResult, incoming.rawText)
-    } catch (error) {
-      console.error(`${LOG_PREFIX} ai_parse_error`, {
-        error: errorMessage(error),
-      })
-      parsedEvent = fallbackParsedEvent(incoming.rawText)
-    }
-
-    console.log(`${LOG_PREFIX} interpreted_event_type`, {
-      eventType: parsedEvent.event_type,
-      destination: parsedEvent.destination,
-      location: parsedEvent.location,
-      priority: parsedEvent.priority,
-    })
-
-    try {
-      const { error: eventError } = await supabaseAdmin.from('events').insert({
-        phone: incoming.phone,
-        raw_text: incoming.rawText,
-        event_type: parsedEvent.event_type,
-        parsed_data: parsedEvent,
+      await activateRoadBlockGlobal({
+        roadId: interpretation.roadId,
+        sourcePhone: incoming.phone,
+        sourceType: incoming.imageUrl
+          ? 'whatsapp_image'
+          : incoming.audioUrl
+            ? 'whatsapp_audio'
+            : 'whatsapp_text',
+        sourceKeyword: interpretation.intent,
+        sourceMessage: rawTextForAudit,
       })
 
-      if (eventError) {
-        console.error(`${LOG_PREFIX} save_event_error`, eventError)
-      }
-    } catch (error) {
-      console.error(`${LOG_PREFIX} save_event_exception`, {
-        error: errorMessage(error),
+      const blockReply = interpretation.suggestedReply
+        ? interpretation.suggestedReply
+        : `Ocorrencia registrada no sistema. Trecho ${interpretation.roadText ?? 'informado'} marcado como indisponivel e roteamento atualizado para evitar essa via.`
+
+      await safeReply(incoming.phone, 'road_block_ack', blockReply, {
+        roadId: interpretation.roadId,
       })
-    }
 
-    const { destination, sourceText } = resolveDestination(
-      parsedEvent,
-      incoming.rawText
-    )
-
-    console.log(`${LOG_PREFIX} destination_found`, {
-      destination: destination?.name ?? null,
-      destinationSource: sourceText,
-    })
-
-    const routeDecision = shouldHandleRouteRequest(
-      parsedEvent,
-      incoming.rawText,
-      Boolean(destination)
-    )
-
-    if (!routeDecision.shouldHandle) {
-      console.log(`${LOG_PREFIX} ignored_not_route_request`, {
-        reason: routeDecision.reason,
-      })
       return NextResponse.json(
-        { ok: true, ignored: true, reason: routeDecision.reason },
+        {
+          ok: true,
+          handled: true,
+          roadBlockRegistered: true,
+          roadId: interpretation.roadId,
+        },
         { status: 200 }
       )
     }
 
-    if (!destination) {
-      const fallbackReply =
-        'Nao consegui identificar o destino. Tente algo como: quero ir para o Terminal B.'
+    const destination =
+      findDestinationByText(interpretation.destinationText) ??
+      findDestinationByText(interpretation.normalizedText)
 
-      try {
-        const sendResult = await sendWhatsAppText(incoming.phone, fallbackReply)
-        console.log(`${LOG_PREFIX} waha_send_result`, {
-          kind: 'destination_not_found_reply',
-          phone: incoming.phone,
-          sendResult,
-        })
-      } catch (error) {
-        console.error(`${LOG_PREFIX} waha_send_error`, {
-          kind: 'destination_not_found_reply',
-          phone: incoming.phone,
-          error: errorMessage(error),
-        })
+    if (interpretation.shouldSendRoute) {
+      if (!destination) {
+        await safeReply(
+          incoming.phone,
+          'destination_not_found_reply',
+          'Nao consegui identificar o destino. Tente algo como: quero ir para o Terminal B.'
+        )
+
+        return NextResponse.json(
+          { ok: true, handled: true, destinationFound: false },
+          { status: 200 }
+        )
       }
 
-      return NextResponse.json(
-        { ok: true, handled: true, destinationFound: false },
-        { status: 200 }
-      )
-    }
-
-    const routeLink = buildRouteLink(
-      destination.name,
-      destination.lng,
-      destination.lat
-    )
-
-    console.log(`${LOG_PREFIX} route_link_generated`, {
-      phone: incoming.phone,
-      destination: destination.name,
-      routeLink,
-    })
-
-    const replyText =
-      `Rota gerada para ${destination.name}. ` +
-      `Toque no link e permita sua localizacao: ${routeLink}`
-
-    try {
-      const sendResult = await sendWhatsAppText(incoming.phone, replyText)
-      console.log(`${LOG_PREFIX} waha_send_result`, {
-        kind: 'route_reply',
+      const routeLink = buildRouteLink(destination.name, destination.lng, destination.lat)
+      console.log(`${LOG_PREFIX} route_link_generated`, {
         phone: incoming.phone,
         destination: destination.name,
-        sendResult,
-      })
-    } catch (error) {
-      console.error(`${LOG_PREFIX} waha_send_error`, {
-        kind: 'route_reply',
-        phone: incoming.phone,
-        destination: destination.name,
-        error: errorMessage(error),
+        routeLink,
       })
 
-      return NextResponse.json(
-        { ok: true, handled: true, sendError: true },
-        { status: 200 }
+      await safeReply(
+        incoming.phone,
+        'route_reply',
+        `Rota gerada para ${destination.name}. Toque no link e permita sua localizacao: ${routeLink}`,
+        {
+          destination: destination.name,
+        }
       )
+
+      return NextResponse.json({ ok: true, handled: true }, { status: 200 })
     }
+
+    const genericReply =
+      interpretation.suggestedReply ||
+      (incoming.imageUrl
+        ? 'Imagem analisada. Posso registrar ocorrencias operacionais e atualizar o roteamento quando houver via indisponivel.'
+        : incoming.audioUrl
+          ? 'Audio processado. Se quiser, posso gerar rota ou registrar ocorrencia de via indisponivel.'
+          : 'Entendi. Posso gerar rota, registrar ocorrencias e atualizar vias indisponiveis no sistema.')
+
+    await safeReply(incoming.phone, 'generic_reply', genericReply)
 
     console.log(`${LOG_PREFIX} request_completed`, {
       elapsedMs: Date.now() - startedAt,
       phone: incoming.phone,
-      destination: destination.name,
+      intent: interpretation.intent,
     })
 
     return NextResponse.json({ ok: true, handled: true }, { status: 200 })

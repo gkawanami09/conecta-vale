@@ -1,0 +1,533 @@
+import { DESTINATIONS, findDestinationByText } from '@/lib/destinations'
+import { detectRoadBlockMessage } from '@/lib/road-blocks'
+import {
+  MONITORED_ROADS,
+  findMonitoredRoadByAlias,
+  type MonitoredRoad,
+} from '@/lib/road-blocks-definitions'
+
+export type MarcoIntent =
+  | 'route_request'
+  | 'road_block_report'
+  | 'maintenance_report'
+  | 'access_blocked'
+  | 'image_occurrence'
+  | 'audio_occurrence'
+  | 'list_blocks'
+  | 'clear_blocks'
+  | 'general_question'
+  | 'small_talk'
+  | 'unknown'
+
+export type MarcoInput = {
+  text?: string | null
+  caption?: string | null
+  messageType?: string | null
+  audioUrl?: string | null
+  imageUrl?: string | null
+  mediaMimeType?: string | null
+}
+
+export type MarcoInterpretation = {
+  intent: MarcoIntent
+  confidence: number
+  eventType: 'interdicao' | 'solicitacao_rota' | 'pedido_apoio' | 'status' | 'desconhecido'
+  summary: string
+  normalizedText: string
+  destinationText: string | null
+  roadText: string | null
+  roadId: MonitoredRoad['id'] | null
+  shouldBlockRoad: boolean
+  shouldSendRoute: boolean
+  asksListBlocks: boolean
+  asksClearBlocks: boolean
+  suggestedReply: string | null
+  transcription: string | null
+  imageAssessment: string | null
+  source: 'openai' | 'fallback'
+}
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini'
+const OPENAI_TRANSCRIBE_MODEL =
+  process.env.OPENAI_AUDIO_MODEL ?? 'gpt-4o-mini-transcribe'
+
+const WAHA_BASE_URL =
+  process.env.WAHA_BASE_URL ?? 'https://apps-waha.ucxocw.easypanel.host/api'
+const WAHA_API_KEY = process.env.WAHA_API_KEY ?? '@Calopsita123'
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isRouteKeyword(text: string) {
+  const normalized = normalizeText(text)
+  const keywords = [
+    'rota',
+    'ir para',
+    'me manda rota',
+    'me envia rota',
+    'como chegar',
+    'quero ir',
+    'chegar no',
+    'chegar na',
+    'caminho',
+  ]
+  return keywords.some((keyword) => normalized.includes(keyword))
+}
+
+function isListBlocksKeyword(text: string) {
+  const normalized = normalizeText(text)
+  return (
+    normalized.includes('listar bloqueios') ||
+    normalized.includes('bloqueios ativos') ||
+    normalized.includes('vias bloqueadas')
+  )
+}
+
+function isClearBlocksKeyword(text: string) {
+  const normalized = normalizeText(text)
+  return (
+    normalized.includes('limpar bloqueios') ||
+    normalized.includes('remover bloqueios') ||
+    normalized.includes('desbloquear vias')
+  )
+}
+
+function parseJsonObject<T>(raw: string): T | null {
+  const cleaned = raw
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .trim()
+
+  try {
+    return JSON.parse(cleaned) as T
+  } catch {
+    return null
+  }
+}
+
+function truncate(value: string, max = 5000) {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}...`
+}
+
+function resolveMediaUrl(url: string) {
+  if (/^https?:\/\//i.test(url)) return url
+
+  const base = WAHA_BASE_URL.replace(/\/+$/, '')
+  if (url.startsWith('/')) {
+    const origin = new URL(base).origin
+    return `${origin}${url}`
+  }
+
+  if (base.endsWith('/api')) return `${base}/${url}`
+  return `${base}/api/${url}`
+}
+
+async function downloadMedia(url: string) {
+  const absoluteUrl = resolveMediaUrl(url)
+  const response = await fetch(absoluteUrl, {
+    method: 'GET',
+    headers: {
+      'X-Api-Key': WAHA_API_KEY,
+    },
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    throw new Error(`Falha ao baixar midia (${response.status})`)
+  }
+
+  const contentType =
+    response.headers.get('content-type') ?? 'application/octet-stream'
+  const arrayBuffer = await response.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  return {
+    buffer,
+    mimeType: contentType,
+  }
+}
+
+async function transcribeAudioFromUrl(audioUrl: string, mimeType?: string | null) {
+  if (!OPENAI_API_KEY) return null
+
+  const media = await downloadMedia(audioUrl)
+  const fileMime = mimeType ?? media.mimeType
+  const extension = fileMime.includes('ogg')
+    ? 'ogg'
+    : fileMime.includes('mpeg') || fileMime.includes('mp3')
+      ? 'mp3'
+      : fileMime.includes('wav')
+        ? 'wav'
+        : 'm4a'
+
+  const form = new FormData()
+  form.append(
+    'file',
+    new Blob([media.buffer], { type: fileMime }),
+    `audio.${extension}`
+  )
+  form.append('model', OPENAI_TRANSCRIBE_MODEL)
+
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: form,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Falha na transcricao (${response.status})`)
+  }
+
+  const data = (await response.json()) as { text?: string }
+  return data.text?.trim() || null
+}
+
+async function analyzeImageFromUrl(
+  imageUrl: string,
+  caption: string | null,
+  messageText: string | null
+) {
+  if (!OPENAI_API_KEY) return null
+
+  const media = await downloadMedia(imageUrl)
+  const imageDataUrl = `data:${media.mimeType};base64,${media.buffer.toString('base64')}`
+
+  const prompt = [
+    'Analise esta imagem em contexto logistico/viario.',
+    'Responda apenas JSON valido com os campos:',
+    '{"has_operational_issue": boolean, "issue_type": string, "summary": string}',
+    'issue_type pode ser: bloqueio, manutencao, obstrucao, acidente, normal, desconhecido.',
+    'Nao invente a rua se nao houver evidencias no texto/legenda.',
+    caption ? `Legenda: ${caption}` : 'Legenda: (vazia)',
+    messageText ? `Texto: ${messageText}` : 'Texto: (vazio)',
+  ].join('\n')
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: prompt },
+            { type: 'input_image', image_url: imageDataUrl },
+          ],
+        },
+      ],
+      max_output_tokens: 300,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Falha na analise de imagem (${response.status})`)
+  }
+
+  const data = (await response.json()) as { output_text?: string }
+  const parsed = parseJsonObject<{
+    has_operational_issue?: boolean
+    issue_type?: string
+    summary?: string
+  }>(data.output_text ?? '')
+
+  if (!parsed) return null
+
+  return {
+    hasOperationalIssue: Boolean(parsed.has_operational_issue),
+    issueType: parsed.issue_type ?? 'desconhecido',
+    summary: parsed.summary ?? 'Imagem analisada sem classificacao conclusiva.',
+  }
+}
+
+function fallbackInterpretation(input: {
+  combinedText: string
+  transcription: string | null
+  imageAssessment: string | null
+  messageType: string | null
+}): MarcoInterpretation {
+  const roadDetection = detectRoadBlockMessage(input.combinedText)
+  const destination = findDestinationByText(input.combinedText)
+  const asksList = isListBlocksKeyword(input.combinedText)
+  const asksClear = isClearBlocksKeyword(input.combinedText)
+
+  let intent: MarcoIntent = 'unknown'
+  let eventType: MarcoInterpretation['eventType'] = 'desconhecido'
+
+  if (asksList) {
+    intent = 'list_blocks'
+    eventType = 'status'
+  } else if (asksClear) {
+    intent = 'clear_blocks'
+    eventType = 'status'
+  } else if (roadDetection) {
+    intent = 'road_block_report'
+    eventType = 'interdicao'
+  } else if (destination || isRouteKeyword(input.combinedText)) {
+    intent = 'route_request'
+    eventType = 'solicitacao_rota'
+  } else if (input.messageType === 'image') {
+    intent = 'image_occurrence'
+  } else if (input.messageType === 'audio' || input.transcription) {
+    intent = 'audio_occurrence'
+  }
+
+  return {
+    intent,
+    confidence: 0.55,
+    eventType,
+    summary: truncate(input.combinedText, 240),
+    normalizedText: input.combinedText,
+    destinationText: destination?.name ?? null,
+    roadText: roadDetection?.road.name ?? null,
+    roadId: roadDetection?.road.id ?? null,
+    shouldBlockRoad: Boolean(roadDetection),
+    shouldSendRoute: Boolean(destination || isRouteKeyword(input.combinedText)),
+    asksListBlocks: asksList,
+    asksClearBlocks: asksClear,
+    suggestedReply: null,
+    transcription: input.transcription,
+    imageAssessment: input.imageAssessment,
+    source: 'fallback',
+  }
+}
+
+async function openaiInterpret(input: {
+  combinedText: string
+  messageType: string | null
+  transcription: string | null
+  imageAssessment: string | null
+}) {
+  if (!OPENAI_API_KEY) return null
+
+  const roadsContext = MONITORED_ROADS.map((road) => ({
+    id: road.id,
+    name: road.name,
+    aliases: road.aliases,
+  }))
+
+  const destinationsContext = DESTINATIONS.map((destination) => ({
+    key: destination.key,
+    name: destination.name,
+    aliases: destination.aliases ?? [],
+  }))
+
+  const prompt = `
+Voce e o Marco, assistente operacional do Connecta Vale.
+
+Objetivo:
+- Interpretar mensagens de WhatsApp (texto, audio transcrito e imagem analisada).
+- Ser tolerante a erros de digitacao e abreviacoes.
+- Nao afirmar acoes externas que nao foram executadas.
+
+Contexto de vias monitoradas (bloqueio global permitido):
+${JSON.stringify(roadsContext, null, 2)}
+
+Contexto de destinos conhecidos:
+${JSON.stringify(destinationsContext, null, 2)}
+
+Classifique a intencao em uma das opcoes:
+- route_request
+- road_block_report
+- maintenance_report
+- access_blocked
+- image_occurrence
+- audio_occurrence
+- list_blocks
+- clear_blocks
+- general_question
+- small_talk
+- unknown
+
+Retorne APENAS JSON valido, no formato:
+{
+  "intent": string,
+  "confidence": number,
+  "event_type": "interdicao" | "solicitacao_rota" | "pedido_apoio" | "status" | "desconhecido",
+  "summary": string,
+  "destination_text": string | null,
+  "road_text": string | null,
+  "road_id": "rua-tiradentes" | "rua-jose-cordeiro" | "rua-duque-de-caxias" | null,
+  "should_block_road": boolean,
+  "should_send_route": boolean,
+  "asks_list_blocks": boolean,
+  "asks_clear_blocks": boolean,
+  "suggested_reply": string
+}
+
+Regras de resposta:
+- suggested_reply deve ser natural, operacional e transparente.
+- Nunca diga que acionou equipes externas ou executou algo fora do sistema.
+- Pode dizer: ocorrencia registrada no sistema, trecho marcado indisponivel, solicitacao preparada para encaminhamento.
+
+Dados da mensagem:
+- Tipo: ${input.messageType ?? 'text'}
+- Texto combinado: ${truncate(input.combinedText, 4000)}
+- Transcricao de audio: ${input.transcription ?? '(sem audio)'}
+- Analise da imagem: ${input.imageAssessment ?? '(sem imagem)'}
+  `
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: prompt,
+      max_output_tokens: 600,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Falha na interpretacao OpenAI (${response.status})`)
+  }
+
+  const data = (await response.json()) as { output_text?: string }
+  return parseJsonObject<{
+    intent?: MarcoIntent
+    confidence?: number
+    event_type?: MarcoInterpretation['eventType']
+    summary?: string
+    destination_text?: string | null
+    road_text?: string | null
+    road_id?: MonitoredRoad['id'] | null
+    should_block_road?: boolean
+    should_send_route?: boolean
+    asks_list_blocks?: boolean
+    asks_clear_blocks?: boolean
+    suggested_reply?: string
+  }>(data.output_text ?? '')
+}
+
+export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInterpretation> {
+  const rawText = input.text?.trim() || null
+  const caption = input.caption?.trim() || null
+
+  let transcription: string | null = null
+  if (input.audioUrl) {
+    try {
+      transcription = await transcribeAudioFromUrl(input.audioUrl, input.mediaMimeType)
+    } catch (error) {
+      console.error('[marco] audio_transcription_error', error)
+    }
+  }
+
+  let imageAssessment: string | null = null
+  if (input.imageUrl) {
+    try {
+      const imageAnalysis = await analyzeImageFromUrl(input.imageUrl, caption, rawText)
+      if (imageAnalysis) {
+        imageAssessment = `issue=${imageAnalysis.issueType}; summary=${imageAnalysis.summary}; has_issue=${imageAnalysis.hasOperationalIssue}`
+      }
+    } catch (error) {
+      console.error('[marco] image_analysis_error', error)
+    }
+  }
+
+  const combinedText = [rawText, caption, transcription, imageAssessment]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join(' | ')
+
+  if (!combinedText) {
+    return fallbackInterpretation({
+      combinedText: '',
+      transcription,
+      imageAssessment,
+      messageType: input.messageType ?? null,
+    })
+  }
+
+  try {
+    const ai = await openaiInterpret({
+      combinedText,
+      messageType: input.messageType ?? null,
+      transcription,
+      imageAssessment,
+    })
+
+    if (!ai) {
+      return fallbackInterpretation({
+        combinedText,
+        transcription,
+        imageAssessment,
+        messageType: input.messageType ?? null,
+      })
+    }
+
+    const roadById = ai.road_id ? MONITORED_ROADS.find((road) => road.id === ai.road_id) : null
+    const roadByText = ai.road_text ? findMonitoredRoadByAlias(ai.road_text) : null
+    const roadFromText = findMonitoredRoadByAlias(combinedText)
+    const resolvedRoad = roadById ?? roadByText ?? roadFromText ?? null
+
+    const destinationFromAi = findDestinationByText(ai.destination_text ?? null)
+    const destinationFromText = findDestinationByText(combinedText)
+
+    const safeIntent: MarcoIntent = ai.intent ?? 'unknown'
+    const safeEventType: MarcoInterpretation['eventType'] =
+      ai.event_type === 'interdicao' ||
+      ai.event_type === 'solicitacao_rota' ||
+      ai.event_type === 'pedido_apoio' ||
+      ai.event_type === 'status' ||
+      ai.event_type === 'desconhecido'
+        ? ai.event_type
+        : 'desconhecido'
+
+    const wantsRoute =
+      Boolean(ai.should_send_route) ||
+      safeIntent === 'route_request' ||
+      Boolean(destinationFromAi || destinationFromText) ||
+      isRouteKeyword(combinedText)
+
+    const wantsBlock =
+      Boolean(ai.should_block_road) ||
+      safeIntent === 'road_block_report' ||
+      safeIntent === 'maintenance_report' ||
+      safeIntent === 'access_blocked'
+
+    return {
+      intent: safeIntent,
+      confidence:
+        typeof ai.confidence === 'number' && Number.isFinite(ai.confidence)
+          ? Math.max(0, Math.min(1, ai.confidence))
+          : 0.7,
+      eventType: safeEventType,
+      summary: ai.summary?.trim() || truncate(combinedText, 240),
+      normalizedText: combinedText,
+      destinationText: destinationFromAi?.name ?? destinationFromText?.name ?? ai.destination_text ?? null,
+      roadText: resolvedRoad?.name ?? ai.road_text ?? null,
+      roadId: resolvedRoad?.id ?? null,
+      shouldBlockRoad: wantsBlock,
+      shouldSendRoute: wantsRoute,
+      asksListBlocks: Boolean(ai.asks_list_blocks) || isListBlocksKeyword(combinedText),
+      asksClearBlocks: Boolean(ai.asks_clear_blocks) || isClearBlocksKeyword(combinedText),
+      suggestedReply: ai.suggested_reply?.trim() || null,
+      transcription,
+      imageAssessment,
+      source: 'openai',
+    }
+  } catch (error) {
+    console.error('[marco] openai_interpretation_error', error)
+    return fallbackInterpretation({
+      combinedText,
+      transcription,
+      imageAssessment,
+      messageType: input.messageType ?? null,
+    })
+  }
+}

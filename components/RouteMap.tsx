@@ -251,7 +251,7 @@ export default function RouteMap({
     const routeStart = routeStartRef.current
     if (!routeStart) return
 
-    const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}`
+    const requestKey = `${routeStart[0]}:${routeStart[1]}->${end[0]}:${end[1]}|${routeRefreshKey}`
     if (routeRequestKeyRef.current === requestKey) return
     routeRequestKeyRef.current = requestKey
 
