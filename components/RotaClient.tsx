@@ -34,6 +34,7 @@ type RouteMetadata = {
   provider?: string
   routeMode?: string
   blocksApplied?: boolean
+  degradedForActiveBlocks?: boolean
 }
 
 function statusLabel(status: LocationStatus) {
@@ -191,13 +192,18 @@ export default function RotaClient() {
       .slice(0, 3)
 
     const suffix = activeBlocks.length > 3 ? ' e outros trechos' : ''
-    const modeLabel =
-      routeMetadata?.routeMode === 'detour_fallback'
-        ? 'desvio operacional'
-        : 'bloqueios ativos'
+    const blockedNames = names.length > 0 ? names.join(', ') : 'trechos operacionais'
 
-    return `Rota ajustada por ${modeLabel}. Evite: ${names.join(', ')}${suffix}.`
-  }, [activeBlocks, routeMetadata?.routeMode])
+    if (routeMetadata?.degradedForActiveBlocks || routeMetadata?.blocksApplied === false) {
+      return `Bloqueios ativos no mapa: ${blockedNames}${suffix}. A rota exibida pode nao evitar 100% desses pontos.`
+    }
+
+    return `Rota ajustada por bloqueios ativos. Evite: ${blockedNames}${suffix}.`
+  }, [
+    activeBlocks,
+    routeMetadata?.blocksApplied,
+    routeMetadata?.degradedForActiveBlocks,
+  ])
 
   const loadBlocks = useCallback(async () => {
     try {

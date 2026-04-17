@@ -30,6 +30,7 @@ type RouteMetadata = {
   provider?: string
   routeMode?: string
   blocksApplied?: boolean
+  degradedForActiveBlocks?: boolean
 }
 
 type RouteMapProps = {

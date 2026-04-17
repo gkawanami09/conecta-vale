@@ -211,8 +211,10 @@ export async function POST(req: NextRequest) {
       | 'avoid_polygons'
       | 'detour_fallback'
       | 'default_fallback'
-      | 'osrm_only' = 'default'
+      | 'osrm_only'
+      | 'osrm_fallback' = 'default'
     let provider: 'ors' | 'osrm' = 'ors'
+    let blocksApplied = false
 
     let orsError: unknown = null
 
@@ -224,11 +226,13 @@ export async function POST(req: NextRequest) {
             avoidPolygons,
           })
           routeMode = 'avoid_polygons'
+          blocksApplied = true
         } else {
           data = await requestDirectionsOrs(orsApiKey, {
             coordinates: [startCoord, endCoord],
           })
           routeMode = 'default'
+          blocksApplied = false
         }
       } catch (firstError) {
         try {
@@ -237,6 +241,7 @@ export async function POST(req: NextRequest) {
               coordinates: [startCoord, ...detourWaypoints, endCoord],
             })
             routeMode = 'detour_fallback'
+            blocksApplied = true
           }
         } catch (detourError) {
           orsError = { firstError, detourError }
@@ -248,6 +253,7 @@ export async function POST(req: NextRequest) {
               coordinates: [startCoord, endCoord],
             })
             routeMode = 'default_fallback'
+            blocksApplied = false
           } catch (defaultError) {
             orsError = { firstError, defaultError }
           }
@@ -258,30 +264,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (!data) {
-      if (hasActiveBlocks) {
-        console.error('Rota bloqueada: sem alternativa segura com bloqueios ativos', {
-          orsError,
-          activeBlocks: activeBlocks.map((block) => ({
-            roadId: block.roadId,
-            roadName: block.roadName,
-            blockType: block.blockType,
-          })),
-        })
-        return NextResponse.json(
-          {
-            error:
-              'Nao foi possivel calcular rota alternativa com os bloqueios ativos. Aguarde nova atualizacao do gestor.',
-          },
-          { status: 409 }
-        )
-      }
-
       try {
         data = await requestDirectionsOsrm({
           coordinates: [startCoord, endCoord],
         })
         provider = 'osrm'
-        routeMode = orsApiKey ? 'default_fallback' : 'osrm_only'
+        routeMode = hasActiveBlocks ? 'osrm_fallback' : orsApiKey ? 'default_fallback' : 'osrm_only'
+        blocksApplied = false
       } catch (osrmError) {
         console.error('Erro rota ORS+OSRM:', {
           orsError,
@@ -297,7 +286,8 @@ export async function POST(req: NextRequest) {
     const metadata = {
       provider,
       routeMode,
-      blocksApplied: hasActiveBlocks,
+      blocksApplied: hasActiveBlocks ? blocksApplied : false,
+      degradedForActiveBlocks: hasActiveBlocks && !blocksApplied,
       activeRoadBlocks: activeBlocks.map((block) => ({
         roadId: block.roadId,
         roadName: block.roadName,
