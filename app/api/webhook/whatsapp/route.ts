@@ -451,14 +451,44 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const destinationResolution = resolveDestinationFromTexts([
-      interpretation.destinationText,
+    const userDrivenDestinationResolution = resolveDestinationFromTexts([
       incoming.rawText,
       incoming.caption,
       interpretation.transcription,
+    ])
+    const aiDrivenDestinationResolution = resolveDestinationFromTexts([
+      interpretation.destinationText,
       interpretation.normalizedText,
     ])
+
+    // Regra de seguranca: prioriza o que o usuario realmente escreveu/falou.
+    // So usa o destino da IA quando o usuario nao deu pista suficiente.
+    const destinationResolution =
+      userDrivenDestinationResolution.destination
+        ? userDrivenDestinationResolution
+        : aiDrivenDestinationResolution.confidence === 'high'
+          ? aiDrivenDestinationResolution
+          : userDrivenDestinationResolution
     const destination = destinationResolution.destination
+
+    console.log(`${LOG_PREFIX} destination_resolution`, {
+      userDriven: {
+        destination: userDrivenDestinationResolution.destination?.name ?? null,
+        confidence: userDrivenDestinationResolution.confidence,
+        candidates: userDrivenDestinationResolution.candidates
+          .slice(0, 3)
+          .map((item) => ({ name: item.destination.name, score: item.score })),
+      },
+      aiDriven: {
+        destination: aiDrivenDestinationResolution.destination?.name ?? null,
+        confidence: aiDrivenDestinationResolution.confidence,
+        candidates: aiDrivenDestinationResolution.candidates
+          .slice(0, 3)
+          .map((item) => ({ name: item.destination.name, score: item.score })),
+      },
+      finalDestination: destination?.name ?? null,
+      finalConfidence: destinationResolution.confidence,
+    })
 
     if (interpretation.shouldSendRoute) {
       if (!destination) {
