@@ -427,7 +427,13 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const routeLink = buildRouteLink(destination.name, destination.lng, destination.lat)
+      const normalizedPhone = incoming.phone.replace(/\D/g, '')
+      const shareId = normalizedPhone ? `phone:${normalizedPhone}` : null
+
+      const routeLink = buildRouteLink(destination.name, destination.lng, destination.lat, {
+        userPhone: incoming.phone,
+        shareId,
+      })
       console.log(`${LOG_PREFIX} route_link_generated`, {
         phone: incoming.phone,
         destination: destination.name,

@@ -37,10 +37,21 @@ function resolvePublicBaseUrl() {
     if (normalized) return normalized
   }
 
-  return 'https://connecta-vale.vercel.app'
+  return 'https://conecta-vale.vercel.app'
 }
 
-export function buildRouteLink(destName: string, lng: number, lat: number) {
+type RouteLinkOptions = {
+  userPhone?: string | null
+  userName?: string | null
+  shareId?: string | null
+}
+
+export function buildRouteLink(
+  destName: string,
+  lng: number,
+  lat: number,
+  options: RouteLinkOptions = {}
+) {
   const baseUrl = resolvePublicBaseUrl()
 
   const params = new URLSearchParams({
@@ -48,6 +59,18 @@ export function buildRouteLink(destName: string, lng: number, lat: number) {
     destLat: String(lat),
     destName,
   })
+
+  if (options.userPhone) {
+    params.set('userPhone', options.userPhone)
+  }
+
+  if (options.userName) {
+    params.set('userName', options.userName)
+  }
+
+  if (options.shareId) {
+    params.set('shareId', options.shareId)
+  }
 
   return `${baseUrl}/rota?${params.toString()}`
 }

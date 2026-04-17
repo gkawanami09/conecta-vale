@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useRealtimeLocation, type LocationStatus } from '@/hooks/useRealtimeLocation'
@@ -40,6 +40,35 @@ function statusDotClass(status: LocationStatus) {
   return 'bg-rose-400'
 }
 
+function makeLocalShareId() {
+  const key = 'conecta-vale-share-id'
+  const existing = window.localStorage.getItem(key)
+  if (existing) {
+    return existing
+  }
+
+  const generated =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? `session:${crypto.randomUUID()}`
+      : `session:${Date.now()}`
+
+  window.localStorage.setItem(key, generated)
+  return generated
+}
+
+function normalizePhone(rawValue: string | null) {
+  if (!rawValue) return null
+  const digits = rawValue.replace(/\D/g, '')
+  return digits.length > 0 ? digits : null
+}
+
+function displayUserName(name: string | null, phone: string | null, shareId: string | null) {
+  if (name) return name
+  if (phone) return `Usuario ${phone.slice(-4)}`
+  if (shareId) return `Usuario ${shareId.slice(-6)}`
+  return 'Usuario'
+}
+
 export default function RotaClient() {
   const searchParams = useSearchParams()
 
@@ -64,6 +93,10 @@ export default function RotaClient() {
     distanceMeters: null,
   })
   const [activeBlocks, setActiveBlocks] = useState<ActiveBlock[]>([])
+  const [shareId, setShareId] = useState<string | null>(null)
+
+  const lastSharePushAtRef = useRef(0)
+  const lastInactivityStatusRef = useRef<LocationStatus | null>(null)
 
   const destination = useMemo(() => {
     const destLng = Number(searchParams.get('destLng'))
@@ -84,6 +117,44 @@ export default function RotaClient() {
       usedFallback: !isValid,
     }
   }, [searchParams])
+
+  const passengerPhone = useMemo(
+    () => normalizePhone(searchParams.get('userPhone')),
+    [searchParams]
+  )
+
+  const passengerName = useMemo(() => {
+    const rawName = searchParams.get('userName')
+    if (!rawName) return null
+
+    const normalized = rawName.trim()
+    return normalized.length > 0 ? normalized : null
+  }, [searchParams])
+
+  useEffect(() => {
+    const shareFromQuery = searchParams.get('shareId')?.trim()
+
+    if (shareFromQuery) {
+      setShareId(shareFromQuery)
+      return
+    }
+
+    if (passengerPhone) {
+      setShareId(`phone:${passengerPhone}`)
+      return
+    }
+
+    setShareId(makeLocalShareId())
+  }, [searchParams, passengerPhone])
+
+  const sharingIdentity = useMemo(
+    () => ({
+      shareId,
+      phone: passengerPhone,
+      name: displayUserName(passengerName, passengerPhone, shareId),
+    }),
+    [shareId, passengerName, passengerPhone]
+  )
 
   const blockedRoadIds = useMemo(
     () => activeBlocks.map((block) => block.roadId),
@@ -111,6 +182,42 @@ export default function RotaClient() {
     }
   }, [])
 
+  const pushSharedLocation = useCallback(
+    async (payload: {
+      sharingEnabled: boolean
+      status: string
+      position?: {
+        lng: number
+        lat: number
+        accuracy: number | null
+        heading: number | null
+      }
+    }) => {
+      if (!sharingIdentity.shareId) return
+
+      try {
+        await fetch('/api/location/share', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          keepalive: true,
+          body: JSON.stringify({
+            shareId: sharingIdentity.shareId,
+            phone: sharingIdentity.phone,
+            name: sharingIdentity.name,
+            sharingEnabled: payload.sharingEnabled,
+            status: payload.status,
+            position: payload.position,
+          }),
+        })
+      } catch (syncError) {
+        console.warn('[rota-client] sync_location_warn', syncError)
+      }
+    },
+    [sharingIdentity]
+  )
+
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       void loadBlocks()
@@ -122,6 +229,54 @@ export default function RotaClient() {
       window.clearInterval(intervalId)
     }
   }, [loadBlocks])
+
+  useEffect(() => {
+    if (!position || status !== 'active') {
+      return
+    }
+
+    const now = Date.now()
+    if (now - lastSharePushAtRef.current < 3000) {
+      return
+    }
+
+    lastSharePushAtRef.current = now
+    void pushSharedLocation({
+      sharingEnabled: true,
+      status: 'active',
+      position: {
+        lng: position[0],
+        lat: position[1],
+        accuracy: typeof accuracy === 'number' ? accuracy : null,
+        heading: typeof heading === 'number' ? heading : null,
+      },
+    })
+  }, [position, status, accuracy, heading, pushSharedLocation])
+
+  useEffect(() => {
+    if (!shareId) return
+
+    if (status === 'active' || status === 'requesting' || status === 'idle') {
+      lastInactivityStatusRef.current = null
+      return
+    }
+
+    if (lastInactivityStatusRef.current === status) {
+      return
+    }
+
+    lastInactivityStatusRef.current = status
+
+    const payloadStatus =
+      status === 'denied' || status === 'unsupported'
+        ? 'sharing_disabled'
+        : 'stale'
+
+    void pushSharedLocation({
+      sharingEnabled: status !== 'denied' && status !== 'unsupported',
+      status: payloadStatus,
+    })
+  }, [status, shareId, pushSharedLocation])
 
   function handleRecenter() {
     if (!position) return
