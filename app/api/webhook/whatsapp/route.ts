@@ -255,6 +255,7 @@ export async function POST(req: NextRequest) {
       asksClearBlocks: interpretation.asksClearBlocks,
       source: interpretation.source,
       hasTranscription: Boolean(interpretation.transcription),
+      transcriptionStatus: interpretation.transcriptionStatus,
       hasImageAssessment: Boolean(interpretation.imageAssessment),
     })
 
@@ -273,6 +274,7 @@ export async function POST(req: NextRequest) {
       asks_list_blocks: interpretation.asksListBlocks,
       asks_clear_blocks: interpretation.asksClearBlocks,
       transcription: interpretation.transcription,
+      transcription_status: interpretation.transcriptionStatus,
       image_assessment: interpretation.imageAssessment,
       source: interpretation.source,
     })
@@ -348,10 +350,17 @@ export async function POST(req: NextRequest) {
 
     if (interpretation.shouldSendRoute) {
       if (!destination) {
+        const routeFallbackReply =
+          incoming.audioUrl &&
+          interpretation.transcriptionStatus !== 'success' &&
+          !incoming.rawText
+            ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto, por exemplo: quero ir para o Terminal B.'
+            : 'Nao consegui identificar o destino. Tente algo como: quero ir para o Terminal B.'
+
         await safeReply(
           incoming.phone,
           'destination_not_found_reply',
-          'Nao consegui identificar o destino. Tente algo como: quero ir para o Terminal B.'
+          routeFallbackReply
         )
 
         return NextResponse.json(
@@ -379,13 +388,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, handled: true }, { status: 200 })
     }
 
+    if (interpretation.intent === 'external_forward_request') {
+      const contextualForwardReply =
+        interpretation.suggestedReply ||
+        'Entendi seu pedido de encaminhamento. Ainda não tenho integração para enviar essa imagem diretamente para outra pessoa no WhatsApp. Posso registrar a solicitação no sistema e seguir com apoio operacional por aqui.'
+
+      await safeReply(incoming.phone, 'external_forward_reply', contextualForwardReply, {
+        summary: interpretation.summary,
+      })
+      return NextResponse.json({ ok: true, handled: true }, { status: 200 })
+    }
+
+    if (
+      incoming.audioUrl &&
+      interpretation.transcriptionStatus !== 'success' &&
+      !interpretation.shouldBlockRoad &&
+      !interpretation.asksListBlocks &&
+      !interpretation.asksClearBlocks
+    ) {
+      const audioFailureReply =
+        interpretation.transcriptionStatus === 'missing_media_url'
+          ? 'Recebi seu áudio, mas a mídia não chegou completa no webhook. Reenvie o áudio ou envie em texto para eu gerar a rota.'
+          : 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+
+      await safeReply(incoming.phone, 'audio_transcription_failed_reply', audioFailureReply)
+      return NextResponse.json(
+        { ok: true, handled: true, audioTranscriptionFailed: true },
+        { status: 200 }
+      )
+    }
+
     const genericReply =
       interpretation.suggestedReply ||
       (incoming.imageUrl
-        ? 'Imagem analisada. Posso registrar ocorrencias operacionais e atualizar o roteamento quando houver via indisponivel.'
-        : incoming.audioUrl
-          ? 'Audio processado. Se quiser, posso gerar rota ou registrar ocorrencia de via indisponivel.'
-          : 'Entendi. Posso gerar rota, registrar ocorrencias e atualizar vias indisponiveis no sistema.')
+        ? `Imagem analisada. ${interpretation.summary || 'Se houver ocorrencia de via, posso registrar e atualizar o roteamento.'}`
+        : incoming.audioUrl && interpretation.transcriptionStatus === 'success'
+          ? `Audio transcrito com sucesso. ${interpretation.summary || 'Posso gerar rota ou registrar ocorrencia de via indisponivel.'}`
+        : `Entendi seu contexto. ${interpretation.summary || 'Posso gerar rota, registrar ocorrencias e atualizar vias indisponiveis no sistema.'}`)
 
     await safeReply(incoming.phone, 'generic_reply', genericReply)
 

@@ -11,6 +11,7 @@ export type MarcoIntent =
   | 'road_block_report'
   | 'maintenance_report'
   | 'access_blocked'
+  | 'external_forward_request'
   | 'image_occurrence'
   | 'audio_occurrence'
   | 'list_blocks'
@@ -43,6 +44,7 @@ export type MarcoInterpretation = {
   asksClearBlocks: boolean
   suggestedReply: string | null
   transcription: string | null
+  transcriptionStatus: 'not_applicable' | 'success' | 'failed' | 'missing_media_url'
   imageAssessment: string | null
   source: 'openai' | 'fallback'
 }
@@ -97,6 +99,16 @@ function isClearBlocksKeyword(text: string) {
     normalized.includes('limpar bloqueios') ||
     normalized.includes('remover bloqueios') ||
     normalized.includes('desbloquear vias')
+  )
+}
+
+function isExternalForwardKeyword(text: string) {
+  const normalized = normalizeText(text)
+  return (
+    normalized.includes('manda ') ||
+    normalized.includes('envia ') ||
+    normalized.includes('encaminha ') ||
+    normalized.includes('fala para ')
   )
 }
 
@@ -257,6 +269,7 @@ async function analyzeImageFromUrl(
 function fallbackInterpretation(input: {
   combinedText: string
   transcription: string | null
+  transcriptionStatus: MarcoInterpretation['transcriptionStatus']
   imageAssessment: string | null
   messageType: string | null
 }): MarcoInterpretation {
@@ -277,6 +290,9 @@ function fallbackInterpretation(input: {
   } else if (roadDetection) {
     intent = 'road_block_report'
     eventType = 'interdicao'
+  } else if (isExternalForwardKeyword(input.combinedText)) {
+    intent = 'external_forward_request'
+    eventType = 'status'
   } else if (destination || isRouteKeyword(input.combinedText)) {
     intent = 'route_request'
     eventType = 'solicitacao_rota'
@@ -299,8 +315,12 @@ function fallbackInterpretation(input: {
     shouldSendRoute: Boolean(destination || isRouteKeyword(input.combinedText)),
     asksListBlocks: asksList,
     asksClearBlocks: asksClear,
-    suggestedReply: null,
+    suggestedReply:
+      intent === 'external_forward_request'
+        ? 'Entendi seu pedido de encaminhamento. No momento eu não envio mídia para contatos externos automaticamente, mas posso registrar a solicitação operacional no sistema.'
+        : null,
     transcription: input.transcription,
+    transcriptionStatus: input.transcriptionStatus,
     imageAssessment: input.imageAssessment,
     source: 'fallback',
   }
@@ -345,6 +365,7 @@ Classifique a intencao em uma das opcoes:
 - road_block_report
 - maintenance_report
 - access_blocked
+- external_forward_request
 - image_occurrence
 - audio_occurrence
 - list_blocks
@@ -420,12 +441,17 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
   const caption = input.caption?.trim() || null
 
   let transcription: string | null = null
+  let transcriptionStatus: MarcoInterpretation['transcriptionStatus'] = 'not_applicable'
   if (input.audioUrl) {
     try {
       transcription = await transcribeAudioFromUrl(input.audioUrl, input.mediaMimeType)
+      transcriptionStatus = transcription ? 'success' : 'failed'
     } catch (error) {
       console.error('[marco] audio_transcription_error', error)
+      transcriptionStatus = 'failed'
     }
+  } else if ((input.messageType ?? '').includes('audio')) {
+    transcriptionStatus = 'missing_media_url'
   }
 
   let imageAssessment: string | null = null
@@ -448,6 +474,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     return fallbackInterpretation({
       combinedText: '',
       transcription,
+      transcriptionStatus,
       imageAssessment,
       messageType: input.messageType ?? null,
     })
@@ -465,6 +492,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       return fallbackInterpretation({
         combinedText,
         transcription,
+        transcriptionStatus,
         imageAssessment,
         messageType: input.messageType ?? null,
       })
@@ -518,6 +546,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
       asksClearBlocks: Boolean(ai.asks_clear_blocks) || isClearBlocksKeyword(combinedText),
       suggestedReply: ai.suggested_reply?.trim() || null,
       transcription,
+      transcriptionStatus,
       imageAssessment,
       source: 'openai',
     }
@@ -526,6 +555,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     return fallbackInterpretation({
       combinedText,
       transcription,
+      transcriptionStatus,
       imageAssessment,
       messageType: input.messageType ?? null,
     })
