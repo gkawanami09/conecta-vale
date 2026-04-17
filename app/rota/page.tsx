@@ -22,13 +22,13 @@ export default function RotaPage() {
             <span className='inline-flex items-center gap-2 rounded-full bg-white/95 px-2.5 py-1'>
               <Image
                 src='/logo-vale.png'
-                alt='Logo Connecta Vale'
+                alt='Logo Conecta Vale'
                 width={18}
                 height={18}
                 className='h-[18px] w-[18px] rounded-full object-cover'
               />
               <span className='text-[11px] font-bold uppercase tracking-[0.12em] text-[#384880]'>
-                Connecta Vale
+                Conecta Vale
               </span>
             </span>
             <span className='rounded-full border border-blue-200/50 bg-blue-100/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-blue-50'>

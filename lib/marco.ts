@@ -523,7 +523,7 @@ async function openaiInterpret(input: {
   }))
 
   const prompt = `
-Voce e o Marco, assistente operacional do Connecta Vale.
+Voce e o Marco, assistente operacional do Conecta Vale.
 
 Objetivo:
 - Interpretar mensagens de WhatsApp (texto, audio transcrito e imagem analisada).

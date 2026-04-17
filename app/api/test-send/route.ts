@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sendWhatsAppText } from '@/lib/whatsapp'
 
 const DEFAULT_TEST_TO = process.env.WAHA_TEST_TO ?? '5518999999999'
-const DEFAULT_TEST_BODY = 'Teste manual do Connecta Vale via WAHA'
+const DEFAULT_TEST_BODY = 'Teste manual do Conecta Vale via WAHA'
 
 export async function GET(req: NextRequest) {
   try {

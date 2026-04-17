@@ -220,11 +220,11 @@ export default function RouteMap({
   const userIcon = useMemo(
     () =>
       L.divIcon({
-        className: 'connecta-user-marker-wrap',
+        className: 'conecta-user-marker-wrap',
         html: `
-          <span class="connecta-user-marker-pulse"></span>
-          <span class="connecta-user-marker-core"></span>
-          <span class="connecta-user-marker-arrow" style="transform: translateX(-50%) rotate(${headingDegrees}deg)"></span>
+          <span class="conecta-user-marker-pulse"></span>
+          <span class="conecta-user-marker-core"></span>
+          <span class="conecta-user-marker-arrow" style="transform: translateX(-50%) rotate(${headingDegrees}deg)"></span>
         `,
         iconSize: [30, 30],
         iconAnchor: [15, 15],
@@ -235,8 +235,8 @@ export default function RouteMap({
   const destinationIcon = useMemo(
     () =>
       L.divIcon({
-        className: 'connecta-destination-marker-wrap',
-        html: '<span class="connecta-destination-marker-core"></span>',
+        className: 'conecta-destination-marker-wrap',
+        html: '<span class="conecta-destination-marker-core"></span>',
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       }),
@@ -376,21 +376,21 @@ export default function RouteMap({
       )}
 
       <style jsx global>{`
-        .connecta-user-marker-wrap,
-        .connecta-destination-marker-wrap {
+        .conecta-user-marker-wrap,
+        .conecta-destination-marker-wrap {
           background: transparent;
           border: 0;
         }
 
-        .connecta-user-marker-pulse {
+        .conecta-user-marker-pulse {
           position: absolute;
           inset: 0;
           border-radius: 999px;
           background: rgba(40, 80, 184, 0.28);
-          animation: connectaPulse 1.8s ease-out infinite;
+          animation: conectaPulse 1.8s ease-out infinite;
         }
 
-        .connecta-user-marker-core {
+        .conecta-user-marker-core {
           position: absolute;
           left: 50%;
           top: 50%;
@@ -403,7 +403,7 @@ export default function RouteMap({
           box-shadow: 0 0 0 2px rgba(40, 80, 184, 0.35);
         }
 
-        .connecta-user-marker-arrow {
+        .conecta-user-marker-arrow {
           position: absolute;
           left: 50%;
           top: -2px;
@@ -417,7 +417,7 @@ export default function RouteMap({
           transition: transform 220ms ease-out;
         }
 
-        .connecta-destination-marker-core {
+        .conecta-destination-marker-core {
           position: absolute;
           left: 50%;
           top: 50%;
@@ -430,7 +430,7 @@ export default function RouteMap({
           box-shadow: 0 0 0 4px rgba(112, 200, 248, 0.48);
         }
 
-        @keyframes connectaPulse {
+        @keyframes conectaPulse {
           0% {
             transform: scale(0.72);
             opacity: 0.95;
