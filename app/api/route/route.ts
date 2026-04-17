@@ -48,10 +48,10 @@ type BlockRouteViolation = {
 
 const REQUEST_TIMEOUT_MS = 12000
 const EARTH_RADIUS_METERS = 6371000
-const POINT_BLOCK_ROUTE_MIN_RADIUS_METERS = 60
+const POINT_BLOCK_ROUTE_MIN_RADIUS_METERS = 25
 const POINT_BLOCK_ROUTE_PADDING_METERS = 8
 const ROAD_BLOCK_PROXIMITY_THRESHOLD_METERS = 35
-const MAX_REFINED_DETOUR_ATTEMPTS = 6
+const MAX_REFINED_DETOUR_ATTEMPTS = 24
 
 function isValidCoord(coord: [number, number]) {
   const [lng, lat] = coord
@@ -275,7 +275,18 @@ function buildRefinedDetourCoordinates(
   activeBlocks: Awaited<ReturnType<typeof getActiveRoadBlocksGlobal>>
 ) {
   const routeCandidates: [number, number][][] = []
-  const pointKeys = new Set<string>()
+  const routeKeys = new Set<string>()
+
+  function addCandidate(waypoints: [number, number][]) {
+    const coordinates = [startCoord, ...waypoints, endCoord]
+    const key = coordinates
+      .map((point) => `${point[0].toFixed(6)}:${point[1].toFixed(6)}`)
+      .join('|')
+
+    if (routeKeys.has(key)) return
+    routeKeys.add(key)
+    routeCandidates.push(coordinates)
+  }
 
   for (const block of activeBlocks) {
     if (
@@ -290,22 +301,31 @@ function buildRefinedDetourCoordinates(
 
     const radius = getPointBlockEffectiveRadius(block.blockRadiusMeters)
     const offsetMeters = Math.max(150, radius * 2.4)
-    const deltaLng = metersToDegreesLng(offsetMeters, block.blockLat)
-    const deltaLat = metersToDegreesLat(offsetMeters)
+    const pointRing: [number, number][] = []
+    const bearings = [0, 45, 90, 135, 180, 225, 270, 315]
 
-    const waypoints: [number, number][] = [
-      [block.blockLng + deltaLng, block.blockLat],
-      [block.blockLng - deltaLng, block.blockLat],
-      [block.blockLng, block.blockLat + deltaLat],
-      [block.blockLng, block.blockLat - deltaLat],
-    ]
-
-    for (const waypoint of waypoints) {
+    for (const bearingDeg of bearings) {
+      const angle = (bearingDeg * Math.PI) / 180
+      const deltaLng = metersToDegreesLng(Math.cos(angle) * offsetMeters, block.blockLat)
+      const deltaLat = metersToDegreesLat(Math.sin(angle) * offsetMeters)
+      const waypoint: [number, number] = [block.blockLng + deltaLng, block.blockLat + deltaLat]
       if (!isValidCoord(waypoint)) continue
-      const key = `${waypoint[0].toFixed(6)}:${waypoint[1].toFixed(6)}`
-      if (pointKeys.has(key)) continue
-      pointKeys.add(key)
-      routeCandidates.push([startCoord, waypoint, endCoord])
+      pointRing.push(waypoint)
+    }
+
+    for (const waypoint of pointRing) {
+      addCandidate([waypoint])
+    }
+
+    if (pointRing.length >= 2) {
+      for (let index = 0; index < pointRing.length; index += 1) {
+        const current = pointRing[index]
+        const adjacent = pointRing[(index + 1) % pointRing.length]
+        const opposite = pointRing[(index + Math.floor(pointRing.length / 2)) % pointRing.length]
+
+        addCandidate([current, adjacent])
+        addCandidate([current, opposite])
+      }
     }
   }
 
@@ -314,7 +334,7 @@ function buildRefinedDetourCoordinates(
     const road = findMonitoredRoadById(block.monitoredRoadId)
     if (!road) continue
 
-    routeCandidates.push([startCoord, road.detourWaypoint, endCoord])
+    addCandidate([road.detourWaypoint])
   }
 
   return routeCandidates.slice(0, MAX_REFINED_DETOUR_ATTEMPTS)

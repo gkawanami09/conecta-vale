@@ -69,7 +69,7 @@ type RouteApiResponse = {
 
 const EARTH_RADIUS_METERS = 6371000
 const OFF_ROUTE_THRESHOLD_METERS = 45
-const POINT_BLOCK_DISPLAY_MIN_RADIUS_METERS = 60
+const POINT_BLOCK_DISPLAY_MIN_RADIUS_METERS = 25
 
 function toRad(value: number) {
   return (value * Math.PI) / 180
@@ -410,6 +410,19 @@ export default function RouteMap({
       window.clearTimeout(retryTimer)
     }
   }, [error, routeStart, retryCount])
+
+  useEffect(() => {
+    if (!error || !routeStart) return
+    if (activeBlocks.length === 0) return
+
+    const intervalId = window.setInterval(() => {
+      setRetryNonce((value) => value + 1)
+    }, 8000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [error, routeStart, activeBlocks.length])
 
   useEffect(() => {
     if (!currentPositionLatLng || routeCoords.length < 2) {
