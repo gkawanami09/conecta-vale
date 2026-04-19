@@ -1,161 +1,155 @@
 # Connecta Vale
 
-O **Connecta Vale** é um MVP de navegação operacional em tempo real.  
-O sistema permite solicitar rotas pelo WhatsApp, abrir um link de navegação no mapa, compartilhar localização em tempo real com autorização do usuário e gerenciar pontos operacionais/bloqueios por meio de um painel administrativo.
+**Navegação operacional em tempo real com WhatsApp, mapa ao vivo e painel de gestão.**
+
+O Connecta Vale é um MVP criado para simular uma central de mobilidade operacional.  
+Com ele, o usuário pede uma rota pelo WhatsApp, recebe um link de navegação, autoriza a localização e passa a ser acompanhado em tempo real no mapa. O gestor, por sua vez, consegue visualizar usuários ativos, adicionar pontos operacionais e criar bloqueios no mapa.
 
 ---
 
-## Como testar pelo WhatsApp
+## Teste rápido
 
-Envie uma mensagem para o número:
+### 1. Peça uma rota pelo WhatsApp
+
+Envie uma mensagem para:
 
 **+55 11 5194-5106**
 
-Você pode pedir rotas com mensagens naturais, por exemplo:
+Exemplos de mensagens:
 
 ```text
 Quero ir para o Pier 4
 Quero ir para a subestação
 Me manda a rota para a entrada vale
 Como chego no ponto de ônibus?
-
-Pontos já cadastrados para teste:
-
+Pontos disponíveis para teste
 Pier 4
 Subestação
 Entrada Vale
 Ponto de ônibus
 
-Após enviar a mensagem, o sistema responderá com um link de navegação.
+Depois de enviar a mensagem, o sistema responderá com um link de navegação.
 
-Uso da localização
+Importante: autorize a localização
 
-Depois de receber o link pelo WhatsApp, abra o link e autorize o uso da localização.
+Ao abrir o link recebido pelo WhatsApp, clique em permitir localização.
 
-Essa autorização é necessária para que o sistema consiga acompanhar a posição do usuário em tempo real no mapa.
+O sistema precisa dessa permissão para:
 
-O sistema segue as normas da LGPD, pois a localização só é utilizada após o consentimento do usuário. Caso o usuário não autorize, o compartilhamento em tempo real não será ativado.
+mostrar sua posição no mapa;
+acompanhar sua movimentação em tempo real;
+permitir que o gestor visualize usuários ativos no dashboard.
 
-Observação importante para iPhone
+O Connecta Vale segue as normas da LGPD: a localização só é usada quando o usuário autoriza o compartilhamento.
 
-Em alguns iPhones, principalmente usando o Google Chrome, pode ocorrer bloqueio automático da localização pelo navegador.
+Atenção para usuários de iPhone
 
-Caso a localização não funcione corretamente, recomenda-se testar em outro navegador, principalmente o Safari.
+Em alguns iPhones, principalmente no Google Chrome, o navegador pode bloquear automaticamente a localização.
 
-Também é importante verificar se a permissão de localização está liberada nas configurações do navegador.
+Caso a localização não funcione:
 
-Área administrativa do gestor
+teste pelo Safari;
+verifique se o navegador tem permissão de localização ativa;
+abra novamente o link da rota depois de liberar a permissão.
+Acesso do gestor
 
-O painel administrativo pode ser acessado pelo link:
+O dashboard administrativo pode ser acessado em:
 
 https://conecta-vale.vercel.app/gestor
 
-Credenciais de acesso:
+Credenciais:
 
 Email: gestor@conecta-vale.local
 Senha: Gestor@123
-Funcionalidades do dashboard do gestor
+O que o gestor consegue fazer
 
-Na área administrativa, o gestor pode:
+No dashboard, o gestor pode:
 
-visualizar no mapa todos os usuários que aceitaram compartilhar localização;
-acompanhar a localização dos usuários em tempo real;
-adicionar bloqueios operacionais no mapa;
-adicionar novos pontos fixos/operacionais;
+ver no mapa os usuários que aceitaram compartilhar localização;
+acompanhar usuários em tempo real;
+visualizar pontos fixos operacionais;
+adicionar novos pontos no mapa;
+criar bloqueios operacionais;
 remover pontos criados;
-visualizar os pontos fixos existentes;
-simular alterações na operação e observar o impacto no sistema.
-Como adicionar um bloqueio
+simular mudanças na operação.
+Como criar um bloqueio no mapa
 
-Dentro do dashboard do gestor:
+No painel do gestor:
 
 Clique em Adicionar bloqueio.
-Clique em qualquer local do mapa onde deseja criar o bloqueio.
-Na lateral do sistema, informe:
+Clique no local desejado no mapa.
+Na lateral direita, informe:
 o nome do bloqueio;
 o tamanho do bloqueio em metros.
-Clique em Aplicar para confirmar o bloqueio.
+Clique em Aplicar.
 
-Para desfazer antes de salvar, clique em Cancelar.
+Para cancelar antes de salvar, clique em Cancelar.
 
-Após aplicado, o bloqueio passa a ser considerado pelo sistema e pode impactar as rotas dos usuários.
+Depois de aplicado, o bloqueio passa a ser considerado pelo sistema e pode impactar as rotas dos usuários.
 
-Como adicionar um ponto fixo
+Como adicionar um novo ponto operacional
 
-Dentro do dashboard do gestor:
+No painel do gestor:
 
 Clique em Adicionar ponto.
 Clique no local desejado no mapa.
-Na lateral do sistema, informe:
+Na lateral direita, informe:
 o nome do ponto;
-o tipo do ponto, como terminal ou ponto operacional.
-Clique em Aplicar para salvar.
+o tipo do ponto: terminal ou ponto operacional.
+Clique em Aplicar.
 
-Depois de criado, o ponto passa a aparecer no sistema e pode ser utilizado como destino nas rotas.
+Depois de criado, esse ponto passa a aparecer no sistema e pode ser usado como destino.
 
 Exemplo:
 
-Se o gestor criar um ponto chamado Sede Administrativa, o usuário poderá enviar no WhatsApp:
+Se o gestor criar um ponto chamado Sede Administrativa, o usuário poderá mandar no WhatsApp:
 
 Quero ir para a Sede Administrativa
 
-O sistema poderá então gerar uma rota para esse novo local.
+E o sistema poderá gerar uma rota para esse novo local.
 
-Remoção de pontos criados
+Como remover pontos criados
 
-Os pontos criados pelo gestor podem ser removidos pelo painel lateral direito do dashboard.
+Na lateral direita do dashboard, o gestor consegue ver os pontos criados e remover aqueles que não devem mais ficar ativos no sistema.
 
-Na lateral, o gestor consegue visualizar os pontos cadastrados e remover aqueles que não devem mais permanecer no sistema.
-
-Monitoramento em tempo real
-
-O dashboard do gestor mostra a localização dos usuários que aceitaram compartilhar a posição.
-
-Importante:
-
-apenas usuários que autorizaram a localização aparecem no mapa;
-o sistema não rastreia usuários sem consentimento;
-a localização é usada para navegação operacional e demonstração do MVP;
-o gestor consegue acompanhar os usuários ativos diretamente pelo mapa.
-Fluxo principal do MVP
-
-O fluxo principal de teste funciona assim:
-
-O usuário envia uma mensagem no WhatsApp pedindo uma rota.
+Fluxo principal do sistema
+O usuário manda uma mensagem no WhatsApp pedindo uma rota.
 O Marco interpreta o destino solicitado.
 O sistema envia um link de navegação.
 O usuário abre o link.
 O usuário autoriza o uso da localização.
 O mapa acompanha a posição em tempo real.
-O gestor visualiza os usuários ativos no dashboard.
-O gestor pode criar bloqueios ou novos pontos operacionais.
-O sistema atualiza o comportamento das rotas conforme os pontos e bloqueios criados.
-Exemplo de teste completo
+O gestor vê o usuário ativo no dashboard.
+O gestor pode criar bloqueios ou novos pontos.
+O sistema atualiza o mapa e as rotas conforme as mudanças.
+Sugestão de teste completo
 Envie no WhatsApp:
 Quero ir para o Pier 4
 Abra o link recebido.
 Autorize o uso da localização.
 Acesse o painel do gestor:
 https://conecta-vale.vercel.app/gestor
-Faça login com:
+Faça login:
 Email: gestor@conecta-vale.local
 Senha: Gestor@123
-No painel do gestor, clique em Adicionar bloqueio.
-Clique em um ponto do mapa.
+No dashboard, clique em Adicionar bloqueio.
+Clique em algum ponto do mapa.
 Informe o nome e o tamanho do bloqueio.
 Clique em Aplicar.
-Solicite novamente uma rota pelo WhatsApp e observe o comportamento do sistema.
+Peça uma nova rota pelo WhatsApp e observe o comportamento do sistema.
+Funcionalidades principais
+Solicitação de rotas pelo WhatsApp.
+Interpretação inteligente de destinos.
+Envio automático de link de navegação.
+Mapa interativo.
+Localização em tempo real com autorização do usuário.
+Painel administrativo para gestores.
+Visualização de usuários ativos no mapa.
+Criação de pontos operacionais.
+Simulação de bloqueios.
+Atualização dinâmica da operação.
 Objetivo do projeto
 
-O Connecta Vale foi desenvolvido como um MVP para demonstrar uma solução de mobilidade operacional com:
+O Connecta Vale demonstra como uma operação pode usar WhatsApp, mapa em tempo real e painel de gestão para melhorar a mobilidade interna.
 
-solicitação de rotas pelo WhatsApp;
-interpretação inteligente de destinos;
-mapa interativo;
-compartilhamento de localização em tempo real;
-painel administrativo para gestores;
-criação de pontos operacionais;
-simulação de bloqueios;
-adaptação dinâmica das rotas.
-
-O objetivo é mostrar como uma operação pode receber solicitações, gerar rotas, acompanhar usuários e ajustar o mapa operacional de forma dinâmica.
+A proposta é facilitar o envio de rotas, o acompanhamento de usuários e a adaptação do mapa operacional conforme bloqueios, pontos fixos e necessidades da operação.
