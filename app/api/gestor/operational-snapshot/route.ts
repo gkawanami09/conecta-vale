@@ -13,9 +13,9 @@ function userDisplayName(user: {
   if (user.name) return user.name
   if (user.phone) {
     const suffix = user.phone.slice(-4)
-    return `Usuario ${suffix}`
+    return `Usuário ${suffix}`
   }
-  return `Usuario ${user.shareId.slice(0, 8)}`
+  return `Usuário ${user.shareId.slice(0, 8)}`
 }
 
 function sortUsers(users: DashboardUser[]) {
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 
   if (!session) {
     return NextResponse.json(
-      { ok: false, error: 'Nao autorizado' },
+      { ok: false, error: 'Não autorizado' },
       { status: 401 }
     )
   }

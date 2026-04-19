@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
     if (!shareId) {
       return NextResponse.json(
-        { ok: false, error: 'shareId ou phone sao obrigatorios' },
+        { ok: false, error: 'shareId ou phone são obrigatórios' },
         { status: 400 }
       )
     }
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('[api.location.share] post_error', error)
     return NextResponse.json(
-      { ok: false, error: 'Falha ao atualizar localizacao compartilhada' },
+      { ok: false, error: 'Falha ao atualizar localização compartilhada' },
       { status: 500 }
     )
   }

@@ -73,14 +73,14 @@ function truncateText(value: string, max = 180) {
 
 function formatRouteClarificationReply() {
   return (
-    'Entendi que voce quer rota. Me confirme o destino para eu enviar o link correto. ' +
+    'Entendi que você quer rota. Me confirme o destino para eu enviar o link correto. ' +
     'Exemplo: quero ir para o Terminal B.'
   )
 }
 
 function formatAmbiguousDestinationReply(destinationNames: string[]) {
   const list = destinationNames.join(' ou ')
-  return `Encontrei mais de um destino possivel (${list}). Me confirme qual voce quer.`
+  return `Encontrei mais de um destino possível (${list}). Me confirme qual você quer.`
 }
 
 function formatGenericReply(input: {
@@ -99,14 +99,14 @@ function formatGenericReply(input: {
     input.transcription
   ) {
     const audioPreview = truncateText(input.transcription, 90)
-    return `Entendi seu audio: "${audioPreview}". ${input.summary || 'Posso ajudar com rota, bloqueios e suporte operacional.'}`
+    return `Entendi seu áudio: "${audioPreview}". ${input.summary || 'Posso ajudar com rota, bloqueios e suporte operacional.'}`
   }
 
   if (input.hasImage) {
-    return `Imagem recebida e analisada. ${input.summary || 'Se houver ocorrencia, eu registro e atualizo o sistema.'}`
+    return `Imagem recebida e analisada. ${input.summary || 'Se houver ocorrência, eu registro e atualizo o sistema.'}`
   }
 
-  return `Entendi seu contexto. ${input.summary || 'Posso gerar rota, registrar ocorrencias e consultar bloqueios.'}`
+  return `Entendi seu contexto. ${input.summary || 'Posso gerar rota, registrar ocorrências e consultar bloqueios.'}`
 }
 
 function extractIncomingMessage(parsedBody: JsonObject | null) {
@@ -394,8 +394,8 @@ export async function POST(req: NextRequest) {
       const blocks = await getActiveRoadBlocksGlobal()
       const reply =
         blocks.length === 0
-          ? 'Nao ha vias indisponiveis no momento.'
-          : `Vias indisponiveis no momento: ${blocks.map((block) => block.roadName).join(', ')}.`
+          ? 'Não há vias indisponíveis no momento.'
+          : `Vias indisponíveis no momento: ${blocks.map((block) => block.roadName).join(', ')}.`
 
       await safeReply(incoming.phone, 'list_blocks_reply', reply)
       return NextResponse.json({ ok: true, handled: true }, { status: 200 })
@@ -416,7 +416,7 @@ export async function POST(req: NextRequest) {
         await safeReply(
           incoming.phone,
           'road_block_clarification_reply',
-          'Entendi a ocorrencia de via indisponivel, mas preciso da rua exata para bloquear no sistema. Informe: Rua Tiradentes, Rua Jose Cordeiro ou Rua Duque de Caxias.'
+          'Entendi a ocorrência de via indisponível, mas preciso da rua exata para bloquear no sistema. Informe: Rua Tiradentes, Rua José Cordeiro ou Rua Duque de Caxias.'
         )
         return NextResponse.json(
           { ok: true, handled: true, roadBlockNeedsClarification: true },
@@ -438,7 +438,7 @@ export async function POST(req: NextRequest) {
 
       const blockReply =
         interpretation.suggestedReply ||
-        `Ocorrencia registrada no sistema. Trecho ${interpretation.roadText ?? 'informado'} marcado como indisponivel e roteamento atualizado para evitar essa via.`
+        `Ocorrência registrada no sistema. Trecho ${interpretation.roadText ?? 'informado'} marcado como indisponível e roteamento atualizado para evitar essa via.`
 
       await safeReply(incoming.phone, 'road_block_ack', blockReply, {
         roadId: interpretation.roadId,
@@ -464,8 +464,8 @@ export async function POST(req: NextRequest) {
       [interpretation.destinationText, interpretation.normalizedText]
     )
 
-    // Regra de seguranca: prioriza o que o usuario realmente escreveu/falou.
-    // So usa o destino da IA quando o usuario nao deu pista suficiente.
+    // Regra de segurança: prioriza o que o usuário realmente escreveu/falou.
+    // Só usa o destino da IA quando o usuário não deu pista suficiente.
     const destinationResolution =
       userDrivenDestinationResolution.destination
         ? userDrivenDestinationResolution
@@ -499,7 +499,7 @@ export async function POST(req: NextRequest) {
           hasAudioInput &&
           interpretation.transcriptionStatus !== 'success' &&
           !incoming.rawText
-            ? 'Recebi seu audio, mas nao consegui transcrever com confianca. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+            ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
             : formatRouteClarificationReply()
 
         await safeReply(
@@ -555,7 +555,7 @@ export async function POST(req: NextRequest) {
       await safeReply(
         incoming.phone,
         'route_reply',
-        `Rota gerada para ${destination.name}. Toque no link e permita sua localizacao: ${routeLink}`,
+        `Rota gerada para ${destination.name}. Toque no link e permita sua localização: ${routeLink}`,
         {
           destination: destination.name,
         }
@@ -579,7 +579,7 @@ export async function POST(req: NextRequest) {
 
     if (interpretation.intent === 'external_forward_request') {
       const contextualForwardReply =
-        `Ja encaminhei sua mensagem para ${interpretation.forwardTarget ?? 'o responsavel informado'} e registrei essa solicitacao no sistema.`
+        `Já encaminhei sua mensagem para ${interpretation.forwardTarget ?? 'o responsável informado'} e registrei essa solicitação no sistema.`
 
       await safeReply(
         incoming.phone,
@@ -601,8 +601,8 @@ export async function POST(req: NextRequest) {
     ) {
       const audioFailureReply =
         interpretation.transcriptionStatus === 'missing_media_url'
-          ? 'Recebi seu audio, mas a midia nao chegou completa no webhook. Reenvie o audio ou envie em texto para eu gerar a rota.'
-          : 'Recebi seu audio, mas nao consegui transcrever com confianca. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+          ? 'Recebi seu áudio, mas a mídia não chegou completa no webhook. Reenvie o áudio ou envie em texto para eu gerar a rota.'
+          : 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
 
       await safeReply(
         incoming.phone,

@@ -44,7 +44,7 @@ export default function ManagerLoginForm() {
       const message =
         submitError instanceof Error
           ? submitError.message
-          : 'Nao foi possivel autenticar o gestor'
+          : 'Não foi possível autenticar o gestor'
       setError(message)
     } finally {
       setLoading(false)
@@ -72,7 +72,7 @@ export default function ManagerLoginForm() {
         <div className='mt-6 space-y-3'>
           <label className='block'>
             <span className='mb-1.5 block text-xs font-semibold uppercase tracking-[0.1em] text-slate-600'>
-              Email
+              E-mail
             </span>
             <input
               type='email'

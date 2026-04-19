@@ -38,12 +38,12 @@ type RouteMetadata = {
 }
 
 function statusLabel(status: LocationStatus) {
-  if (status === 'active') return 'Localizacao ativa'
-  if (status === 'requesting') return 'Solicitando permissao'
-  if (status === 'denied') return 'Permissao negada'
-  if (status === 'error') return 'Falha de localizacao'
+  if (status === 'active') return 'Localização ativa'
+  if (status === 'requesting') return 'Solicitando permissão'
+  if (status === 'denied') return 'Permissão negada'
+  if (status === 'error') return 'Falha de localização'
   if (status === 'unsupported') return 'Sem suporte de GPS'
-  return 'Aguardando localizacao'
+  return 'Aguardando localização'
 }
 
 function statusDotClass(status: LocationStatus) {
@@ -76,9 +76,9 @@ function normalizePhone(rawValue: string | null) {
 
 function displayUserName(name: string | null, phone: string | null, shareId: string | null) {
   if (name) return name
-  if (phone) return `Usuario ${phone.slice(-4)}`
-  if (shareId) return `Usuario ${shareId.slice(-6)}`
-  return 'Usuario'
+  if (phone) return `Usuário ${phone.slice(-4)}`
+  if (shareId) return `Usuário ${shareId.slice(-6)}`
+  return 'Usuário'
 }
 
 export default function RotaClient() {
@@ -195,7 +195,7 @@ export default function RotaClient() {
     const blockedNames = names.length > 0 ? names.join(', ') : 'trechos operacionais'
 
     if (routeMetadata?.degradedForActiveBlocks || routeMetadata?.blocksApplied === false) {
-      return `Bloqueios ativos no mapa: ${blockedNames}${suffix}. A rota exibida pode nao evitar 100% desses pontos.`
+      return `Bloqueios ativos no mapa: ${blockedNames}${suffix}. A rota exibida pode não evitar 100% desses pontos.`
     }
 
     return `Rota ajustada por bloqueios ativos. Evite: ${blockedNames}${suffix}.`
@@ -357,7 +357,7 @@ export default function RotaClient() {
           </h2>
           {destination.usedFallback && (
             <p className='mt-1.5 text-xs font-medium text-[#3A5AB8]'>
-              Destino da URL invalido. Usando destino padrao.
+              Destino da URL inválido. Usando destino padrão.
             </p>
           )}
           {activeBlockMessage && (
@@ -367,12 +367,12 @@ export default function RotaClient() {
           )}
           {typeof accuracy === 'number' && status === 'active' && (
             <p className='mt-1 text-[11px] text-slate-600'>
-              Precisao GPS: {Math.round(accuracy)}m
+              Precisão GPS: {Math.round(accuracy)}m
             </p>
           )}
           {deviation.isOffRoute && deviation.distanceMeters !== null && (
             <p className='mt-1 text-[11px] font-medium text-amber-700'>
-              Fora da rota por ~{Math.round(deviation.distanceMeters)}m (pronto para recalculo).
+              Fora da rota por ~{Math.round(deviation.distanceMeters)}m (pronto para recálculo).
             </p>
           )}
         </div>
@@ -386,7 +386,7 @@ export default function RotaClient() {
             >
               {status === 'requesting'
                 ? 'Solicitando GPS...'
-                : 'Ativar localizacao'}
+                : 'Ativar localização'}
             </button>
           )}
 
@@ -404,16 +404,16 @@ export default function RotaClient() {
             <div className='flex items-start justify-between gap-3'>
               <div>
                 <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[#384880]'>
-                  Permissao de localizacao
+                  Permissão de localização
                 </p>
                 <p className='mt-1 text-xs leading-relaxed text-slate-700 sm:text-sm'>
-                  Permita o GPS para acompanhar sua posicao em tempo real no mapa.
+                  Permita o GPS para acompanhar sua posição em tempo real no mapa.
                 </p>
               </div>
               <button
                 onClick={() => setShowLocationHint(false)}
                 className='rounded-md px-1.5 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                aria-label='Fechar aviso de localizacao'
+                aria-label='Fechar aviso de localização'
               >
                 x
               </button>

@@ -36,7 +36,7 @@ export default function RotaPage() {
             </span>
           </div>
           <p className='hidden text-xs font-medium text-blue-50/95 sm:block'>
-            Navegacao e mobilidade em tempo real
+            Navegação e mobilidade em tempo real
           </p>
         </div>
       </header>

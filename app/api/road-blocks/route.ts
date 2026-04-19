@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       const detection = detectRoadBlockMessage(body.text)
       if (!detection) {
         return NextResponse.json(
-          { ok: false, error: 'Mensagem nao reconhecida como bloqueio de via' },
+          { ok: false, error: 'Mensagem não reconhecida como bloqueio de via' },
           { status: 400 }
         )
       }
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     if (!roadId) {
       return NextResponse.json(
-        { ok: false, error: 'roadId ou text sao obrigatorios' },
+        { ok: false, error: 'roadId ou text são obrigatórios' },
         { status: 400 }
       )
     }
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     const road = findMonitoredRoadById(roadId)
     if (!road) {
       return NextResponse.json(
-        { ok: false, error: 'Via monitorada nao encontrada' },
+        { ok: false, error: 'Via monitorada não encontrada' },
         { status: 400 }
       )
     }

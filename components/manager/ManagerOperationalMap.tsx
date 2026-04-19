@@ -53,16 +53,16 @@ type ManagerOperationalMapProps = {
 }
 
 function formatRelativeTime(value: string | null) {
-  if (!value) return 'sem atualizacao'
+  if (!value) return 'sem atualização'
 
   const seconds = Math.max(
     0,
     Math.round((Date.now() - new Date(value).getTime()) / 1000)
   )
 
-  if (seconds < 60) return `${seconds}s atras`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}min atras`
-  return `${Math.floor(seconds / 3600)}h atras`
+  if (seconds < 60) return `${seconds}s atrás`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}min atrás`
+  return `${Math.floor(seconds / 3600)}h atrás`
 }
 
 function getRoadBlockVisualPoint(monitoredRoadId: string | null): BlockVisualPoint | null {
@@ -430,7 +430,7 @@ export default function ManagerOperationalMap({
                 <div className='space-y-1'>
                   <p className='text-sm font-semibold text-slate-900'>{point.name}</p>
                   <p className='text-xs text-slate-600'>
-                    {point.kind === 'terminal' ? 'Terminal operacional' : 'Ponto estrategico'}
+                    {point.kind === 'terminal' ? 'Terminal operacional' : 'Ponto estratégico'}
                     {point.source === 'custom' ? ' (gestor)' : ''}
                   </p>
                 </div>
@@ -455,13 +455,13 @@ export default function ManagerOperationalMap({
                     <p className='text-xs text-slate-700'>
                       {user.phone
                         ? `Telefone: ${user.phone}`
-                        : 'Telefone nao informado'}
+                        : 'Telefone não informado'}
                     </p>
                     <p className='text-xs text-slate-700'>
                       Status: {managerUserStatusLabel(user.status)}
                     </p>
                     <p className='text-xs text-slate-700'>
-                      Ultima atualizacao: {formatRelativeTime(user.lastSeenAt)}
+                      Última atualização: {formatRelativeTime(user.lastSeenAt)}
                     </p>
                   </div>
                 </Popup>

@@ -233,7 +233,7 @@ function MapViewportController({
 function normalizeErrorMessage(value: unknown) {
   if (value instanceof Error && value.message) return value.message
   if (typeof value === 'string' && value.trim()) return value
-  return 'Nao foi possivel carregar a rota.'
+  return 'Não foi possível carregar a rota.'
 }
 
 function isValidCoord(value: number | null | undefined, max: number) {
@@ -418,7 +418,7 @@ export default function RouteMap({
 
         const coordinates = data?.features?.[0]?.geometry?.coordinates
         if (!Array.isArray(coordinates) || coordinates.length < 2) {
-          throw new Error('Rota invalida recebida da API')
+          throw new Error('Rota inválida recebida da API')
         }
 
         const leafletCoords: [number, number][] = coordinates.map(
@@ -575,7 +575,7 @@ export default function RouteMap({
 
         {currentPositionLatLng && (
           <Marker position={currentPositionLatLng} icon={userIcon}>
-            <Popup>Sua posicao</Popup>
+            <Popup>Sua posição</Popup>
           </Marker>
         )}
 

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       const roadId = body.roadId?.trim()
       if (!roadId) {
         return NextResponse.json(
-          { ok: false, error: 'roadId obrigatorio para bloqueio por via' },
+          { ok: false, error: 'roadId obrigatório para bloqueio por via' },
           { status: 400 }
         )
       }
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       const road = findMonitoredRoadById(roadId)
       if (!road) {
         return NextResponse.json(
-          { ok: false, error: 'Via monitorada nao encontrada' },
+          { ok: false, error: 'Via monitorada não encontrada' },
           { status: 400 }
         )
       }
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
       if (lng === null || lat === null) {
         return NextResponse.json(
-          { ok: false, error: 'Coordenadas invalidas para bloqueio' },
+          { ok: false, error: 'Coordenadas inválidas para bloqueio' },
           { status: 400 }
         )
       }

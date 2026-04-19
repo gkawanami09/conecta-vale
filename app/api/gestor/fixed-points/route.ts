@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     if (!name || lng === null || lat === null) {
       return NextResponse.json(
-        { ok: false, error: 'Nome e coordenadas validas sao obrigatorios' },
+        { ok: false, error: 'Nome e coordenadas válidas são obrigatórios' },
         { status: 400 }
       )
     }
@@ -63,7 +63,7 @@ export async function DELETE(request: NextRequest) {
 
     if (!pointId) {
       return NextResponse.json(
-        { ok: false, error: 'pointId obrigatorio' },
+        { ok: false, error: 'pointId obrigatório' },
         { status: 400 }
       )
     }

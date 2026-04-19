@@ -267,7 +267,7 @@ async function downloadMedia(urlCandidates: string[]) {
     if (withoutApiKey) return withoutApiKey
   }
 
-  throw new Error('Falha ao baixar midia em todos os endpoints candidatos')
+  throw new Error('Falha ao baixar mídia em todos os endpoints candidatos')
 }
 
 function decodeAudioBase64(audioBase64: string) {
@@ -432,11 +432,11 @@ async function analyzeImageFromUrl(
   const imageDataUrl = `data:${media.mimeType};base64,${media.buffer.toString('base64')}`
 
   const prompt = [
-    'Analise esta imagem em contexto logistico/viario.',
+    'Analise esta imagem em contexto logístico/viário.',
     'Responda apenas JSON valido com os campos:',
     '{"has_operational_issue": boolean, "issue_type": string, "summary": string}',
     'issue_type pode ser: bloqueio, manutencao, obstrucao, acidente, normal, desconhecido.',
-    'Nao invente a rua se nao houver evidencias no texto/legenda.',
+    'Não invente a rua se não houver evidências no texto/legenda.',
     caption ? `Legenda: ${caption}` : 'Legenda: (vazia)',
     messageText ? `Texto: ${messageText}` : 'Texto: (vazio)',
   ].join('\n')
@@ -463,7 +463,7 @@ async function analyzeImageFromUrl(
   })
 
   if (!response.ok) {
-    throw new Error(`Falha na analise de imagem (${response.status})`)
+    throw new Error(`Falha na análise de imagem (${response.status})`)
   }
 
   const data = (await response.json()) as { output_text?: string }
@@ -478,7 +478,7 @@ async function analyzeImageFromUrl(
   return {
     hasOperationalIssue: Boolean(parsed.has_operational_issue),
     issueType: parsed.issue_type ?? 'desconhecido',
-    summary: parsed.summary ?? 'Imagem analisada sem classificacao conclusiva.',
+    summary: parsed.summary ?? 'Imagem analisada sem classificação conclusiva.',
   }
 }
 
@@ -541,7 +541,7 @@ function fallbackInterpretation(input: {
     forwardTarget,
     suggestedReply:
       intent === 'external_forward_request'
-        ? `Ja encaminhei sua mensagem para ${forwardTarget ?? 'o responsavel informado'} e registrei essa solicitacao no sistema.` 
+        ? `Já encaminhei sua mensagem para ${forwardTarget ?? 'o responsável informado'} e registrei essa solicitação no sistema.` 
         : null,
     transcription: input.transcription,
     transcriptionStatus: input.transcriptionStatus,
@@ -572,13 +572,13 @@ async function openaiInterpret(input: {
   }))
 
   const prompt = `
-Voce e o Marco, assistente operacional do Conecta Vale.
+Você é o Marco, assistente operacional do Conecta Vale.
 
 Objetivo:
-- Interpretar mensagens de WhatsApp (texto, audio transcrito e imagem analisada).
-- Ser tolerante a erros de digitacao e abreviacoes.
-- Nao afirmar acoes externas que nao foram executadas.
-- Evitar enviar rota errada: se destino estiver ambiguo, sinalizar duvida.
+- Interpretar mensagens de WhatsApp (texto, áudio transcrito e imagem analisada).
+- Ser tolerante a erros de digitação e abreviações.
+- Não afirmar ações externas que não foram executadas.
+- Evitar enviar rota errada: se destino estiver ambíguo, sinalizar dúvida.
 
 Contexto de vias monitoradas (bloqueio global permitido):
 ${JSON.stringify(roadsContext, null, 2)}
@@ -619,16 +619,16 @@ Retorne APENAS JSON valido, no formato:
 
 Regras de resposta:
 - suggested_reply deve ser natural, operacional, transparente e objetivo.
-- Mantenha tom profissional e amigavel, com no maximo 2 frases curtas.
+- Mantenha tom profissional e amigável, com no máximo 2 frases curtas.
 - Nunca diga que acionou equipes externas ou executou algo fora do sistema.
-- Pode dizer: ocorrencia registrada no sistema, trecho marcado indisponivel, solicitacao preparada para encaminhamento.
-- Para audio com transcricao valida, use a transcricao como fonte principal para resumo.
-- Se destino nao estiver claro, use should_send_route=false e destination_text=null.
+- Pode dizer: ocorrência registrada no sistema, trecho marcado indisponível, solicitação preparada para encaminhamento.
+- Para áudio com transcrição válida, use a transcrição como fonte principal para resumo.
+- Se destino não estiver claro, use should_send_route=false e destination_text=null.
 
 Dados da mensagem:
 - Tipo: ${input.messageType ?? 'text'}
 - Texto combinado: ${truncate(input.combinedText, 4000)}
-- Transcricao de audio: ${input.transcription ?? '(sem audio)'}
+- Transcrição de áudio: ${input.transcription ?? '(sem áudio)'}
 - Analise da imagem: ${input.imageAssessment ?? '(sem imagem)'}
   `
 
@@ -646,7 +646,7 @@ Dados da mensagem:
   })
 
   if (!response.ok) {
-    throw new Error(`Falha na interpretacao OpenAI (${response.status})`)
+    throw new Error(`Falha na interpretação OpenAI (${response.status})`)
   }
 
   const data = (await response.json()) as { output_text?: string }

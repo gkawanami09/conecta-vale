@@ -42,7 +42,7 @@ type MapClickPoint = {
 }
 
 function formatTime(value: string | null) {
-  if (!value) return 'Sem atualizacao'
+  if (!value) return 'Sem atualização'
   return new Date(value).toLocaleString('pt-BR')
 }
 
@@ -258,7 +258,7 @@ export default function ManagerDashboardClient({
       const message =
         applyError instanceof Error
           ? applyError.message
-          : 'Falha ao aplicar alteracao operacional'
+          : 'Falha ao aplicar alteração operacional'
 
       setActionError(message)
     } finally {
@@ -383,7 +383,7 @@ export default function ManagerDashboardClient({
               onClick={() => setShowUsers((value) => !value)}
               className='rounded-lg border border-white/60 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-800 shadow'
             >
-              {showUsers ? 'Ocultar usuarios' : 'Mostrar usuarios'}
+              {showUsers ? 'Ocultar usuários' : 'Mostrar usuários'}
             </button>
             <button
               onClick={() => setShowFixedPoints((value) => !value)}
@@ -445,7 +445,7 @@ export default function ManagerDashboardClient({
                 </p>
               </div>
               <div className='rounded-xl border border-amber-200 bg-amber-50 p-3'>
-                <p className='text-[11px] uppercase tracking-[0.1em] text-amber-700'>Sem atualizacao</p>
+                <p className='text-[11px] uppercase tracking-[0.1em] text-amber-700'>Sem atualização</p>
                 <p className='mt-1 text-xl font-semibold text-amber-900'>
                   {snapshot?.summary.staleUsers ?? 0}
                 </p>
@@ -470,11 +470,11 @@ export default function ManagerDashboardClient({
               </p>
               <p className='mt-1 text-sm font-semibold text-slate-900'>
                 {snapshot?.summary.operationalStatus === 'attention'
-                  ? 'Atencao: ha bloqueios ativos ou usuarios sem atualizacao recente'
+                  ? 'Atenção: há bloqueios ativos ou usuários sem atualização recente'
                   : 'Normal'}
               </p>
               <p className='mt-2 text-xs text-slate-600'>
-                Ultima atualizacao: {formatTime(snapshot?.summary.lastUpdate ?? null)}
+                Última atualização: {formatTime(snapshot?.summary.lastUpdate ?? null)}
               </p>
             </div>
 
@@ -631,20 +631,20 @@ export default function ManagerDashboardClient({
 
             <div className='mt-4 flex items-center justify-between'>
               <p className='text-xs font-semibold uppercase tracking-[0.1em] text-slate-600'>
-                Usuarios monitorados
+                Usuários monitorados
               </p>
               <button
                 onClick={() => setShowStaleUsers((value) => !value)}
                 className='rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700'
               >
-                {showStaleUsers ? 'Ocultar stale' : 'Mostrar stale'}
+                {showStaleUsers ? 'Ocultar sem atualização' : 'Mostrar sem atualização'}
               </button>
             </div>
 
             <div className='mt-2 space-y-2'>
               {filteredUsers.length === 0 && (
                 <p className='rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600'>
-                  Nenhum usuario monitorado no momento.
+                  Nenhum usuário monitorado no momento.
                 </p>
               )}
 
@@ -659,7 +659,7 @@ export default function ManagerDashboardClient({
                     <div className='min-w-0'>
                       <p className='truncate text-sm font-semibold text-slate-900'>{user.name}</p>
                       <p className='truncate text-xs text-slate-600'>
-                        {user.phone ? user.phone : 'Telefone nao informado'}
+                        {user.phone ? user.phone : 'Telefone não informado'}
                       </p>
                     </div>
                     <span className={`mt-1 h-2.5 w-2.5 rounded-full ${managerUserStatusClass(user.status)}`} />
@@ -679,7 +679,7 @@ export default function ManagerDashboardClient({
             )}
 
             <p className='mt-4 text-[11px] text-slate-500'>
-              Marcadores no mapa: {usersOnMap.length} usuarios,{' '}
+              Marcadores no mapa: {usersOnMap.length} usuários,{' '}
               {showFixedPoints ? snapshot?.fixedPoints.length ?? 0 : 0} pontos fixos e{' '}
               {showRoadBlocks ? snapshot?.roadBlocks.length ?? 0 : 0} bloqueios.
             </p>

@@ -322,7 +322,7 @@ export async function activateRoadBlockGlobal(input: {
 }) {
   const road = findMonitoredRoadById(input.roadId)
   if (!road) {
-    throw new Error(`Via monitorada nao encontrada: ${input.roadId}`)
+    throw new Error(`Via monitorada não encontrada: ${input.roadId}`)
   }
 
   const now = new Date().toISOString()
@@ -365,7 +365,7 @@ export async function activatePointRoadBlockGlobal(input: {
   const lat = parseNumber(input.lat)
 
   if (!isValidCoordinate(lng, lat)) {
-    throw new Error('Coordenadas invalidas para bloqueio por ponto')
+    throw new Error('Coordenadas inválidas para bloqueio por ponto')
   }
 
   const now = new Date().toISOString()
@@ -396,7 +396,7 @@ export async function activatePointRoadBlockGlobal(input: {
 
     if (isMissingPointBlockColumnsError(error)) {
       throw new Error(
-        'Estrutura do banco incompleta para bloqueio por ponto. Rode o SQL de atualizacao.'
+        'Estrutura do banco incompleta para bloqueio por ponto. Rode o SQL de atualização.'
       )
     }
 
@@ -409,7 +409,7 @@ export async function activatePointRoadBlockGlobal(input: {
 export async function clearRoadBlockGlobal(roadId: MonitoredRoad['id']) {
   const road = findMonitoredRoadById(roadId)
   if (!road) {
-    throw new Error(`Via monitorada nao encontrada: ${roadId}`)
+    throw new Error(`Via monitorada não encontrada: ${roadId}`)
   }
 
   const { error } = await supabaseAdmin
@@ -429,7 +429,7 @@ export async function clearRoadBlockGlobal(roadId: MonitoredRoad['id']) {
 export async function clearRoadBlockByIdGlobal(roadId: string) {
   const id = roadId.trim()
   if (!id) {
-    throw new Error('roadId invalido')
+    throw new Error('roadId inválido')
   }
 
   const { error } = await supabaseAdmin

@@ -26,7 +26,7 @@ function normalizeChatId(value: string) {
   const trimmed = value.trim()
 
   if (!trimmed) {
-    throw new Error('Numero de destino vazio')
+    throw new Error('Número de destino vazio')
   }
 
   if (trimmed.includes('@')) {
@@ -35,7 +35,7 @@ function normalizeChatId(value: string) {
 
   const digitsOnly = trimmed.replace(/\D/g, '')
   if (!digitsOnly) {
-    throw new Error(`Numero invalido: "${value}"`)
+    throw new Error(`Número inválido: "${value}"`)
   }
 
   return `${digitsOnly}@c.us`
@@ -49,7 +49,7 @@ function toMetaPhone(value: string) {
   const digitsOnly = withoutSuffix.replace(/\D/g, '')
 
   if (!digitsOnly) {
-    throw new Error(`Numero invalido para Meta API: "${value}"`)
+    throw new Error(`Número inválido para Meta API: "${value}"`)
   }
 
   return digitsOnly
@@ -94,7 +94,7 @@ async function fetchWithTimeout(
 
 async function sendViaMetaCloudApi(to: string, body: string) {
   if (!META_ACCESS_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-    throw new Error('META_ACCESS_TOKEN ou WHATSAPP_PHONE_NUMBER_ID nao configurados')
+    throw new Error('META_ACCESS_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configurados')
   }
 
   const endpoint = `https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`
@@ -246,7 +246,7 @@ export async function sendWhatsAppText(to: string, body: string) {
       message: getErrorMessage(error),
     })
 
-    // Fallback automatico para Meta Cloud API quando WAHA falhar.
+    // Fallback automático para Meta Cloud API quando WAHA falhar.
     try {
       const metaResult = await sendViaMetaCloudApi(to, body)
       console.log(`${LOG_PREFIX} fallback_meta_success`, {

@@ -2,7 +2,7 @@ import type { DashboardUser } from '@/lib/manager-dashboard-types'
 
 export function managerUserStatusLabel(status: DashboardUser['status']) {
   if (status === 'active') return 'Ativo'
-  if (status === 'stale') return 'Sem atualizacao recente'
+  if (status === 'stale') return 'Sem atualização recente'
   return 'Compartilhamento desativado'
 }
 

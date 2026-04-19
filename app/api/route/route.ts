@@ -459,7 +459,7 @@ async function requestDirectionsOrs(
 
   const geoJson = data as RouteGeoJson
   if (!extractLineCoordinates(geoJson)) {
-    throw new Error('ORS retornou geometria invalida')
+    throw new Error('ORS retornou geometria inválida')
   }
 
   return geoJson
@@ -489,7 +489,7 @@ async function requestDirectionsOsrm(options: { coordinates: [number, number][] 
       ?.routes?.[0]?.geometry?.coordinates
 
   if (!Array.isArray(coordinates) || coordinates.length < 2) {
-    throw new Error('OSRM sem geometria valida')
+    throw new Error('OSRM sem geometria válida')
   }
 
   const geoJson = {
@@ -525,7 +525,7 @@ export async function POST(req: NextRequest) {
       end.length !== 2
     ) {
       return NextResponse.json(
-        { error: 'Parametros start e end invalidos' },
+        { error: 'Parâmetros start e end inválidos' },
         { status: 400 }
       )
     }
@@ -535,7 +535,7 @@ export async function POST(req: NextRequest) {
 
     if (!isValidCoord(startCoord) || !isValidCoord(endCoord)) {
       return NextResponse.json(
-        { error: 'Coordenadas start/end invalidas' },
+        { error: 'Coordenadas start/end inválidas' },
         { status: 400 }
       )
     }
@@ -566,7 +566,7 @@ export async function POST(req: NextRequest) {
     function evaluateCandidate(candidate: RouteCandidate) {
       const routeCoords = extractLineCoordinates(candidate.data)
       if (!routeCoords) {
-        throw new Error('Candidato de rota sem geometria valida')
+        throw new Error('Candidato de rota sem geometria válida')
       }
 
       if (!hasActiveBlocks) {
@@ -774,7 +774,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              'Nao foi possivel gerar uma rota segura sem cruzar area interditada. Aguarde liberacao de bloqueio ou ajuste operacional.',
+              'Não foi possível gerar uma rota segura sem cruzar área interditada. Aguarde liberação de bloqueio ou ajuste operacional.',
             metadata: {
               provider: null,
               routeMode: 'strict_blocked',
@@ -790,7 +790,7 @@ export async function POST(req: NextRequest) {
 
       console.error('Erro rota ORS+OSRM:', routeProviderErrors)
       return NextResponse.json(
-        { error: 'Erro ao buscar rota nos provedores disponiveis' },
+        { error: 'Erro ao buscar rota nos provedores disponíveis' },
         { status: 502 }
       )
     }

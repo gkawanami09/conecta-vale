@@ -156,7 +156,7 @@ export async function createCustomOperationalFixedPoint(input: {
   const lat = asNumber(input.lat)
 
   if (!name || lng === null || lat === null) {
-    throw new Error('Dados invalidos para criar ponto fixo operacional')
+    throw new Error('Dados inválidos para criar ponto fixo operacional')
   }
 
   const pointId =
@@ -203,7 +203,7 @@ export async function createCustomOperationalFixedPoint(input: {
 export async function deactivateCustomOperationalFixedPoint(pointId: string) {
   const id = pointId.trim()
   if (!id) {
-    throw new Error('pointId invalido')
+    throw new Error('pointId inválido')
   }
 
   const { error } = await supabaseAdmin
@@ -226,7 +226,7 @@ export async function deactivateCustomOperationalFixedPoint(pointId: string) {
 export async function deactivateOperationalFixedPoint(pointId: string) {
   const id = pointId.trim()
   if (!id) {
-    throw new Error('pointId invalido')
+    throw new Error('pointId inválido')
   }
 
   const basePoint = BASE_POINT_BY_ID.get(id)

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
     if (!isValidFromDb && !isValidFromEnv) {
       return NextResponse.json(
-        { ok: false, error: 'Credenciais invalidas' },
+        { ok: false, error: 'Credenciais inválidas' },
         { status: 401 }
       )
     }
