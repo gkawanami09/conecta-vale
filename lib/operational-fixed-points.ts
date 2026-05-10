@@ -27,10 +27,10 @@ function destinationPoint(key: string, fallbackName: string, kind: OperationalFi
 export const BASE_OPERATIONAL_FIXED_POINTS: OperationalFixedPoint[] = [
   destinationPoint('pier-4', 'Pier 4', 'terminal', [-44.379167, -2.551944]),
   destinationPoint('pier-3', 'Pier 3', 'terminal', [-44.379167, -2.561667]),
-  destinationPoint('entrada-vale', 'Entrada Vale', 'terminal', [-44.3739, -2.5704]),
-  destinationPoint('ponto-onibus', 'Ponto de Ônibus', 'operational', [-44.3702, -2.5734]),
+  destinationPoint('entrada-vale', 'Entrada Vale', 'terminal', [-44.3679, -2.5662]),
+  destinationPoint('ponto-onibus', 'Ponto de Ônibus', 'operational', [-44.3673, -2.5688]),
   destinationPoint('setor-gestao', 'Setor de Gestão', 'operational', [-44.3667, -2.5768]),
-  destinationPoint('subestacao', 'Subestação', 'operational', [-44.3723, -2.5679]),
+  destinationPoint('subestacao', 'Subestação', 'operational', [-44.3737, -2.5755]),
 ]
 
 export const OPERATIONAL_FIXED_POINTS = BASE_OPERATIONAL_FIXED_POINTS

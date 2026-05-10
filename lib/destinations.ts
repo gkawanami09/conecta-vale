@@ -43,8 +43,8 @@ export const DESTINATIONS: Destination[] = [
   {
     key: 'entrada-vale',
     name: 'Entrada Vale',
-    lng: -44.3739,
-    lat: -2.5704,
+    lng: -44.3679,
+    lat: -2.5662,
     aliases: [
       'entrada vale',
       'entrada da vale',
@@ -55,8 +55,8 @@ export const DESTINATIONS: Destination[] = [
   {
     key: 'ponto-onibus',
     name: 'Ponto de Ônibus',
-    lng: -44.3702,
-    lat: -2.5734,
+    lng: -44.3673,
+    lat: -2.5688,
     aliases: [
       'ponto de onibus',
       'ponto de ônibus',
@@ -83,8 +83,8 @@ export const DESTINATIONS: Destination[] = [
   {
     key: 'subestacao',
     name: 'Subestação',
-    lng: -44.3723,
-    lat: -2.5679,
+    lng: -44.3737,
+    lat: -2.5755,
     aliases: ['subestacao', 'subestação', 'subestacao vale'],
   },
 ]
