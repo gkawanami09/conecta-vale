@@ -20,7 +20,8 @@ Você pode testar com mensagens como:
 > Quero ir para o Pier 4  
 > Quero ir para a subestação  
 > Me manda a rota para a entrada vale  
-> Como chego no ponto de ônibus?
+> Como chego no ponto de ônibus?  
+> Quero ir para o setor de gestão
 
 ### Pontos disponíveis para teste
 
@@ -30,6 +31,7 @@ Você pode testar com mensagens como:
 | Subestação | Quero ir para a subestação |
 | Entrada Vale | Me manda a rota para a entrada vale |
 | Ponto de ônibus | Como chego no ponto de ônibus? |
+| Setor de Gestão | Quero ir para o setor de gestão |
 
 Depois de enviar a mensagem, o sistema responderá com um link de navegação.
 

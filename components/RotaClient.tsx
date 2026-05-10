@@ -125,7 +125,7 @@ export default function RotaClient() {
     return {
       end: isValid
         ? ([destLng, destLat] as [number, number])
-        : ([-50.3348, -21.2826] as [number, number]),
+        : ([-44.3739, -2.5704] as [number, number]),
       destName,
       usedFallback: !isValid,
     }

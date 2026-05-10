@@ -176,7 +176,7 @@ function isHelpMessage(text: string | null) {
 function formatRouteExamples(destinations: Destination[]) {
   const names = destinations.slice(0, 3).map((destination) => destination.name)
 
-  if (names.length === 0) return 'quero ir para o Terminal B'
+  if (names.length === 0) return 'quero ir para o Pier 4'
 
   return names.map((name) => `quero ir para ${name}`).join(' | ')
 }
@@ -734,7 +734,7 @@ export async function POST(req: NextRequest) {
           hasAudioInput &&
           interpretation.transcriptionStatus !== 'success' &&
           !incoming.rawText
-            ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+            ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Pier 4.'
             : formatRouteClarificationReply(knownDestinations)
 
         await safeReply(
@@ -837,7 +837,7 @@ export async function POST(req: NextRequest) {
       const audioFailureReply =
         interpretation.transcriptionStatus === 'missing_media_url'
           ? 'Recebi seu áudio, mas a mídia não chegou completa no webhook. Reenvie o áudio ou envie em texto para eu gerar a rota.'
-          : 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
+          : 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Pier 4.'
 
       await safeReply(
         incoming.phone,
