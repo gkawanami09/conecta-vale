@@ -79,6 +79,17 @@ function normalizeText(value: string) {
     .trim()
 }
 
+function escapeRegexTerm(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function hasAnyTerm(normalizedText: string, terms: string[]) {
+  return terms.some((term) => {
+    if (term.includes(' ')) return normalizedText.includes(term)
+    return new RegExp(`\\b${escapeRegexTerm(term)}\\b`).test(normalizedText)
+  })
+}
+
 function isRouteKeyword(text: string) {
   const normalized = normalizeText(text)
   const keywords = [
@@ -116,11 +127,57 @@ function isClearBlocksKeyword(text: string) {
 function isExternalForwardKeyword(text: string) {
   const normalized = normalizeText(text)
   return (
-    normalized.includes('manda ') ||
-    normalized.includes('envia ') ||
-    normalized.includes('encaminha ') ||
-    normalized.includes('fala para ')
+    normalized.includes('encaminha') ||
+    normalized.includes('fala para') ||
+    normalized.includes('manda para') ||
+    normalized.includes('manda pro') ||
+    normalized.includes('manda pra') ||
+    normalized.includes('envia para') ||
+    normalized.includes('envia pro') ||
+    normalized.includes('envia pra')
   )
+}
+
+function isGreetingKeyword(text: string) {
+  const normalized = normalizeText(text)
+  if (!normalized) return false
+  if (normalized.length > 35) return false
+  return hasAnyTerm(normalized, [
+    'oi',
+    'ola',
+    'bom dia',
+    'boa tarde',
+    'boa noite',
+    'opa',
+    'e ai',
+    'fala',
+  ])
+}
+
+function isThanksKeyword(text: string) {
+  const normalized = normalizeText(text)
+  if (!normalized) return false
+  return hasAnyTerm(normalized, [
+    'obrigado',
+    'obrigada',
+    'valeu',
+    'show',
+    'perfeito',
+  ])
+}
+
+function isGeneralQuestionKeyword(text: string) {
+  const normalized = normalizeText(text)
+  if (!normalized) return false
+  return hasAnyTerm(normalized, [
+    'como',
+    'pode',
+    'qual',
+    'quais',
+    'o que',
+    'ajuda',
+    'menu',
+  ])
 }
 
 function normalizeTargetToken(value: string) {
@@ -163,6 +220,23 @@ function parseJsonObject<T>(raw: string): T | null {
   } catch {
     return null
   }
+}
+
+function isMarcoIntent(value: unknown): value is MarcoIntent {
+  return (
+    value === 'route_request' ||
+    value === 'road_block_report' ||
+    value === 'maintenance_report' ||
+    value === 'access_blocked' ||
+    value === 'external_forward_request' ||
+    value === 'image_occurrence' ||
+    value === 'audio_occurrence' ||
+    value === 'list_blocks' ||
+    value === 'clear_blocks' ||
+    value === 'general_question' ||
+    value === 'small_talk' ||
+    value === 'unknown'
+  )
 }
 
 function truncate(value: string, max = 5000) {
@@ -498,6 +572,9 @@ function fallbackInterpretation(input: {
   const asksList = isListBlocksKeyword(input.combinedText)
   const asksClear = isClearBlocksKeyword(input.combinedText)
   const forwardTarget = extractForwardTarget(input.combinedText)
+  const isGreeting = isGreetingKeyword(input.combinedText)
+  const isThanks = isThanksKeyword(input.combinedText)
+  const isGeneralQuestion = isGeneralQuestionKeyword(input.combinedText)
 
   let intent: MarcoIntent = 'unknown'
   let eventType: MarcoInterpretation['eventType'] = 'desconhecido'
@@ -517,11 +594,28 @@ function fallbackInterpretation(input: {
   } else if (destination || isRouteKeyword(input.combinedText)) {
     intent = 'route_request'
     eventType = 'solicitacao_rota'
+  } else if (isGreeting || isThanks) {
+    intent = 'small_talk'
+    eventType = 'status'
+  } else if (isGeneralQuestion) {
+    intent = 'general_question'
+    eventType = 'status'
   } else if ((input.messageType ?? '').includes('image')) {
     intent = 'image_occurrence'
   } else if ((input.messageType ?? '').includes('audio') || input.transcription) {
     intent = 'audio_occurrence'
   }
+
+  const suggestedReply =
+    intent === 'external_forward_request'
+      ? `Já encaminhei sua mensagem para ${forwardTarget ?? 'o responsável informado'} e registrei essa solicitação no sistema.`
+      : intent === 'small_talk' && isThanks
+        ? 'Disponha. Se quiser, já me diga seu destino que eu te envio a rota.'
+        : intent === 'small_talk'
+          ? 'Oi! Posso te ajudar com rota, bloqueios e status operacional. Me diga seu destino para eu gerar o link.'
+          : intent === 'general_question'
+            ? 'Posso gerar rota, consultar vias bloqueadas e registrar ocorrências. Me diga o que você precisa agora.'
+            : null
 
   return {
     intent,
@@ -539,10 +633,7 @@ function fallbackInterpretation(input: {
     asksListBlocks: asksList,
     asksClearBlocks: asksClear,
     forwardTarget,
-    suggestedReply:
-      intent === 'external_forward_request'
-        ? `Já encaminhei sua mensagem para ${forwardTarget ?? 'o responsável informado'} e registrei essa solicitação no sistema.` 
-        : null,
+    suggestedReply,
     transcription: input.transcription,
     transcriptionStatus: input.transcriptionStatus,
     imageAssessment: input.imageAssessment,
@@ -579,6 +670,7 @@ Objetivo:
 - Ser tolerante a erros de digitação e abreviações.
 - Não afirmar ações externas que não foram executadas.
 - Evitar enviar rota errada: se destino estiver ambíguo, sinalizar dúvida.
+- Responder de forma humana e útil, sem respostas genéricas como "entendi seu contexto".
 
 Contexto de vias monitoradas (bloqueio global permitido):
 ${JSON.stringify(roadsContext, null, 2)}
@@ -624,6 +716,10 @@ Regras de resposta:
 - Pode dizer: ocorrência registrada no sistema, trecho marcado indisponível, solicitação preparada para encaminhamento.
 - Para áudio com transcrição válida, use a transcrição como fonte principal para resumo.
 - Se destino não estiver claro, use should_send_route=false e destination_text=null.
+- Se a mensagem for só saudação (ex.: "oi", "bom dia"), use intent=small_talk e suggested_reply convidando o usuário a informar o destino.
+- Se houver agradecimento (ex.: "obrigado"), use intent=small_talk e suggested_reply curto, oferecendo ajuda com rota.
+- Se houver um destino reconhecível mesmo sem a palavra "rota", priorize intent=route_request e should_send_route=true.
+- Se o usuário pedir ajuda/menu, use intent=general_question e suggested_reply com instruções objetivas.
 
 Dados da mensagem:
 - Tipo: ${input.messageType ?? 'text'}
@@ -777,9 +873,20 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     )
 
     const hasExplicitForwardSignal = isExternalForwardKeyword(combinedText)
-    const safeIntent: MarcoIntent = hasExplicitForwardSignal
+    const modelIntent: MarcoIntent = isMarcoIntent(ai.intent) ? ai.intent : 'unknown'
+    const hasDestinationSignal = Boolean(destinationFromAi || destinationFromText)
+    let safeIntent: MarcoIntent = hasExplicitForwardSignal
       ? 'external_forward_request'
-      : (ai.intent ?? 'unknown')
+      : modelIntent
+
+    if (
+      hasDestinationSignal &&
+      (safeIntent === 'unknown' ||
+        safeIntent === 'small_talk' ||
+        safeIntent === 'general_question')
+    ) {
+      safeIntent = 'route_request'
+    }
     const safeEventType: MarcoInterpretation['eventType'] =
       ai.event_type === 'interdicao' ||
       ai.event_type === 'solicitacao_rota' ||
@@ -792,7 +899,7 @@ export async function interpretMarcoMessage(input: MarcoInput): Promise<MarcoInt
     const wantsRoute =
       safeIntent === 'route_request' ||
       (Boolean(ai.should_send_route) && safeIntent !== 'external_forward_request') ||
-      (isRouteKeyword(combinedText) && Boolean(destinationFromAi || destinationFromText))
+      (isRouteKeyword(combinedText) && hasDestinationSignal)
 
     const wantsBlock =
       Boolean(ai.should_block_road) ||

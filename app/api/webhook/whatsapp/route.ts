@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveDestinationFromTextsInCatalog } from '@/lib/destinations'
+import {
+  resolveDestinationFromTextsInCatalog,
+  type Destination,
+} from '@/lib/destinations'
 import {
   activateRoadBlockGlobal,
   clearAllRoadBlocksGlobal,
   getActiveRoadBlocksGlobal,
 } from '@/lib/road-blocks'
 import { buildRouteLink } from '@/lib/route-link'
-import { interpretMarcoMessage } from '@/lib/marco'
+import { interpretMarcoMessage, type MarcoIntent } from '@/lib/marco'
 import { listOperationalDestinations } from '@/lib/operational-destinations'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendWhatsAppText } from '@/lib/whatsapp'
@@ -14,6 +17,30 @@ import { sendWhatsAppText } from '@/lib/whatsapp'
 const LOG_PREFIX = '[webhook.whatsapp.waha]'
 
 type JsonObject = Record<string, unknown>
+type ConversationState = {
+  pendingRouteDestination: boolean
+  lastIntent: MarcoIntent | null
+}
+
+function toMarcoIntent(value: string | null): MarcoIntent | null {
+  if (
+    value === 'route_request' ||
+    value === 'road_block_report' ||
+    value === 'maintenance_report' ||
+    value === 'access_blocked' ||
+    value === 'external_forward_request' ||
+    value === 'image_occurrence' ||
+    value === 'audio_occurrence' ||
+    value === 'list_blocks' ||
+    value === 'clear_blocks' ||
+    value === 'general_question' ||
+    value === 'small_talk' ||
+    value === 'unknown'
+  ) {
+    return value
+  }
+  return null
+}
 
 function asString(value: unknown) {
   if (typeof value !== 'string') return null
@@ -66,24 +93,126 @@ function errorMessage(error: unknown) {
   return String(error)
 }
 
+function asBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return null
+}
+
 function truncateText(value: string, max = 180) {
   if (value.length <= max) return value
   return `${value.slice(0, max)}...`
 }
 
-function formatRouteClarificationReply() {
+function normalizeIntentText(value: string | null | undefined) {
+  if (!value) return ''
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function escapeRegexTerm(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function includesAny(normalizedText: string, terms: string[]) {
+  return terms.some((term) => {
+    if (term.includes(' ')) return normalizedText.includes(term)
+    return new RegExp(`\\b${escapeRegexTerm(term)}\\b`).test(normalizedText)
+  })
+}
+
+function isGreetingMessage(text: string | null) {
+  const normalized = normalizeIntentText(text)
+  if (!normalized) return false
+  if (normalized.length > 35) return false
+  return includesAny(normalized, [
+    'oi',
+    'ola',
+    'bom dia',
+    'boa tarde',
+    'boa noite',
+    'opa',
+    'e ai',
+    'fala',
+    'salve',
+  ])
+}
+
+function isThanksMessage(text: string | null) {
+  const normalized = normalizeIntentText(text)
+  if (!normalized) return false
+  return includesAny(normalized, [
+    'obrigado',
+    'obrigada',
+    'valeu',
+    'show',
+    'perfeito',
+    'tmj',
+  ])
+}
+
+function isHelpMessage(text: string | null) {
+  const normalized = normalizeIntentText(text)
+  if (!normalized) return false
+  return includesAny(normalized, [
+    'ajuda',
+    'help',
+    'menu',
+    'o que voce faz',
+    'como funciona',
+    'opcoes',
+  ])
+}
+
+function formatRouteExamples(destinations: Destination[]) {
+  const names = destinations.slice(0, 3).map((destination) => destination.name)
+
+  if (names.length === 0) return 'quero ir para o Terminal B'
+
+  return names.map((name) => `quero ir para ${name}`).join(' | ')
+}
+
+function formatRouteClarificationReply(destinations: Destination[]) {
   return (
-    'Entendi que você quer rota. Me confirme o destino para eu enviar o link correto. ' +
-    'Exemplo: quero ir para o Terminal B.'
+    'Entendi, vamos gerar sua rota. Me confirme o destino para eu enviar o link correto. ' +
+    `Exemplos: ${formatRouteExamples(destinations)}.`
   )
 }
 
 function formatAmbiguousDestinationReply(destinationNames: string[]) {
   const list = destinationNames.join(' ou ')
-  return `Encontrei mais de um destino possível (${list}). Me confirme qual você quer.`
+  return `Encontrei mais de um destino possível (${list}). Me confirme qual você quer para eu enviar o link certo.`
+}
+
+function formatGreetingReply(destinations: Destination[]) {
+  return (
+    'Oi! Eu sou o Marco, assistente de mobilidade do Conecta Vale. ' +
+    'Posso gerar rota, registrar ocorrência de via e consultar bloqueios. ' +
+    `Para rota, me envie: ${formatRouteExamples(destinations)}.`
+  )
+}
+
+function formatDefaultHelpReply(destinations: Destination[]) {
+  return (
+    'Posso te ajudar com rota, bloqueio de via e status operacional. ' +
+    `Para gerar rota, me diga o destino. Exemplos: ${formatRouteExamples(destinations)}.`
+  )
 }
 
 function formatGenericReply(input: {
+  intent: MarcoIntent
+  rawText: string | null
+  knownDestinations: Destination[]
+  pendingRouteDestination: boolean
   hasImage: boolean
   hasAudioInput: boolean
   transcriptionStatus: string
@@ -91,6 +220,26 @@ function formatGenericReply(input: {
   summary: string
   suggestedReply: string | null
 }) {
+  const normalizedRawText = normalizeIntentText(input.rawText)
+  const shouldPrioritizeGuidance =
+    input.pendingRouteDestination ||
+    isGreetingMessage(input.rawText) ||
+    isHelpMessage(input.rawText)
+
+  if (input.intent === 'small_talk') {
+    if (isThanksMessage(input.rawText)) {
+      return 'Disponha. Se quiser, já me diz seu destino que eu te envio a rota agora.'
+    }
+
+    if (shouldPrioritizeGuidance) {
+      return formatGreetingReply(input.knownDestinations)
+    }
+  }
+
+  if (input.intent === 'general_question' && shouldPrioritizeGuidance) {
+    return formatDefaultHelpReply(input.knownDestinations)
+  }
+
   if (input.suggestedReply) return input.suggestedReply
 
   if (
@@ -99,14 +248,33 @@ function formatGenericReply(input: {
     input.transcription
   ) {
     const audioPreview = truncateText(input.transcription, 90)
-    return `Entendi seu áudio: "${audioPreview}". ${input.summary || 'Posso ajudar com rota, bloqueios e suporte operacional.'}`
+    return (
+      `Ouvi seu áudio: "${audioPreview}". ` +
+      `${input.summary || formatDefaultHelpReply(input.knownDestinations)}`
+    )
   }
 
   if (input.hasImage) {
-    return `Imagem recebida e analisada. ${input.summary || 'Se houver ocorrência, eu registro e atualizo o sistema.'}`
+    return (
+      'Imagem recebida e analisada. ' +
+      (input.summary ||
+        'Se for ocorrência de via, me diga a rua para eu registrar o bloqueio no sistema.')
+    )
   }
 
-  return `Entendi seu contexto. ${input.summary || 'Posso gerar rota, registrar ocorrências e consultar bloqueios.'}`
+  if (input.intent === 'general_question' || isHelpMessage(input.rawText)) {
+    return formatDefaultHelpReply(input.knownDestinations)
+  }
+
+  if (normalizedRawText.length <= 2 || isGreetingMessage(input.rawText)) {
+    return formatGreetingReply(input.knownDestinations)
+  }
+
+  return (
+    input.summary ||
+    'Não consegui entender totalmente sua mensagem ainda. ' +
+      formatDefaultHelpReply(input.knownDestinations)
+  )
 }
 
 function extractIncomingMessage(parsedBody: JsonObject | null) {
@@ -240,6 +408,64 @@ async function saveEvent(
   }
 }
 
+async function loadConversationState(phone: string): Promise<ConversationState> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('events')
+      .select('parsed_data')
+      .eq('phone', phone)
+      .order('created_at', { ascending: false })
+      .limit(6)
+
+    if (error || !data) {
+      if (error) {
+        console.error(`${LOG_PREFIX} load_conversation_state_error`, error)
+      }
+      return {
+        pendingRouteDestination: false,
+        lastIntent: null,
+      }
+    }
+
+    let lastIntent: MarcoIntent | null = null
+    let pendingRouteDestination = false
+
+    for (const row of data) {
+      const parsed = asObject((row as { parsed_data?: unknown }).parsed_data)
+      if (!parsed) continue
+
+      const intent = toMarcoIntent(asString(parsed.intent))
+      if (!lastIntent && intent) {
+        lastIntent = intent
+      }
+
+      const shouldSendRoute = asBoolean(parsed.should_send_route) === true
+      const destinationText = asString(parsed.destination_text)
+      if (
+        intent === 'route_request' &&
+        shouldSendRoute &&
+        !destinationText
+      ) {
+        pendingRouteDestination = true
+        break
+      }
+    }
+
+    return {
+      pendingRouteDestination,
+      lastIntent,
+    }
+  } catch (error) {
+    console.error(`${LOG_PREFIX} load_conversation_state_exception`, {
+      error: errorMessage(error),
+    })
+    return {
+      pendingRouteDestination: false,
+      lastIntent: null,
+    }
+  }
+}
+
 async function safeReply(
   phone: string,
   kind: string,
@@ -331,7 +557,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true }, { status: 200 })
     }
 
-    const knownDestinations = await listOperationalDestinations()
+    const [knownDestinations, conversationState] = await Promise.all([
+      listOperationalDestinations(),
+      loadConversationState(incoming.phone),
+    ])
 
     const interpretation = await interpretMarcoMessage({
       text: incoming.rawText,
@@ -359,6 +588,8 @@ export async function POST(req: NextRequest) {
       asksListBlocks: interpretation.asksListBlocks,
       asksClearBlocks: interpretation.asksClearBlocks,
       source: interpretation.source,
+      pendingRouteDestination: conversationState.pendingRouteDestination,
+      lastIntent: conversationState.lastIntent,
       hasTranscription: Boolean(interpretation.transcription),
       transcriptionStatus: interpretation.transcriptionStatus,
       hasImageAssessment: Boolean(interpretation.imageAssessment),
@@ -473,6 +704,9 @@ export async function POST(req: NextRequest) {
           ? aiDrivenDestinationResolution
           : userDrivenDestinationResolution
     const destination = destinationResolution.destination
+    const shouldSendRoute =
+      interpretation.shouldSendRoute ||
+      (conversationState.pendingRouteDestination && Boolean(destination))
 
     console.log(`${LOG_PREFIX} destination_resolution`, {
       userDriven: {
@@ -491,16 +725,17 @@ export async function POST(req: NextRequest) {
       },
       finalDestination: destination?.name ?? null,
       finalConfidence: destinationResolution.confidence,
+      shouldSendRoute,
     })
 
-    if (interpretation.shouldSendRoute) {
+    if (shouldSendRoute) {
       if (!destination) {
         const routeFallbackReply =
           hasAudioInput &&
           interpretation.transcriptionStatus !== 'success' &&
           !incoming.rawText
             ? 'Recebi seu áudio, mas não consegui transcrever com confiança. Pode repetir em texto? Exemplo: quero ir para o Terminal B.'
-            : formatRouteClarificationReply()
+            : formatRouteClarificationReply(knownDestinations)
 
         await safeReply(
           incoming.phone,
@@ -568,7 +803,7 @@ export async function POST(req: NextRequest) {
       await safeReply(
         incoming.phone,
         'route_without_destination_reply',
-        formatRouteClarificationReply()
+        formatRouteClarificationReply(knownDestinations)
       )
 
       return NextResponse.json(
@@ -616,6 +851,10 @@ export async function POST(req: NextRequest) {
     }
 
     const genericReply = formatGenericReply({
+      intent: interpretation.intent,
+      rawText: incoming.rawText,
+      knownDestinations,
+      pendingRouteDestination: conversationState.pendingRouteDestination,
       hasImage: Boolean(incoming.imageUrl),
       hasAudioInput,
       transcriptionStatus: interpretation.transcriptionStatus,
@@ -624,7 +863,14 @@ export async function POST(req: NextRequest) {
       suggestedReply: interpretation.suggestedReply,
     })
 
-    await safeReply(incoming.phone, 'generic_reply', genericReply)
+    const genericKind =
+      interpretation.intent === 'small_talk'
+        ? 'small_talk_reply'
+        : interpretation.intent === 'general_question'
+          ? 'general_question_reply'
+          : 'generic_reply'
+
+    await safeReply(incoming.phone, genericKind, genericReply)
 
     console.log(`${LOG_PREFIX} request_completed`, {
       elapsedMs: Date.now() - startedAt,
